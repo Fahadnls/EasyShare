@@ -122,6 +122,13 @@ class _TopBar extends StatelessWidget {
             icon: const Icon(Icons.arrow_back_rounded),
           ),
           const SizedBox(width: 4),
+          Image.asset(
+            'assets/logo.png',
+            width: 22,
+            height: 22,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(width: 8),
           Text(
             title,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(

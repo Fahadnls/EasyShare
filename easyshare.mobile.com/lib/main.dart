@@ -21,13 +21,14 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B7F6A),
-          primary: const Color(0xFF1B7F6A),
-          secondary: const Color(0xFF0E5C63),
-          tertiary: const Color(0xFFE07A5F),
-          surface: const Color(0xFFF7F1EB),
+          seedColor: const Color(0xFF1E3A8A),
+          primary: const Color(0xFF1E3A8A),
+          secondary: const Color(0xFF0EA5E9),
+          tertiary: const Color(0xFF60A5FA),
+          surface: const Color(0xFFF3F6FF),
+          tertiaryContainer: const Color(0xFFDCEEFB),
         ),
-        scaffoldBackgroundColor: const Color(0xFFF7F1EB),
+        scaffoldBackgroundColor: const Color(0xFFF3F6FF),
         textTheme: GoogleFonts.spaceGroteskTextTheme(),
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,

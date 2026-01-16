@@ -86,9 +86,9 @@ class _AmbientBackground extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            colorScheme.primaryContainer.withOpacity(0.65),
+            colorScheme.primaryContainer.withValues(alpha: 0.65),
             colorScheme.surface,
-            colorScheme.tertiaryContainer.withOpacity(0.5),
+            colorScheme.tertiaryContainer.withValues(alpha: 0.5),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -99,12 +99,12 @@ class _AmbientBackground extends StatelessWidget {
           Positioned(
             top: -80,
             right: -60,
-            child: _GlowBlob(color: Color(0x3381C784), size: 220),
+            child: _GlowBlob(color: Color(0x334AA3FF), size: 220),
           ),
           Positioned(
             bottom: -90,
             left: -50,
-            child: _GlowBlob(color: Color(0x3366D2A5), size: 240),
+            child: _GlowBlob(color: Color(0x3338BDF8), size: 240),
           ),
         ],
       ),
@@ -146,7 +146,12 @@ class _Header extends StatelessWidget {
             color: cs.primary,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Icon(Icons.auto_awesome, color: cs.onPrimary),
+          child: Image.asset(
+            'assets/logo.png',
+            width: 28,
+            height: 28,
+            fit: BoxFit.contain,
+          ),
         ),
         const SizedBox(width: 12),
         Column(
@@ -183,13 +188,16 @@ class _HeroCard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
         gradient: LinearGradient(
-          colors: [cs.primary.withOpacity(0.9), cs.tertiary.withOpacity(0.9)],
+          colors: [
+            cs.primary.withValues(alpha: 0.9),
+            cs.tertiary.withValues(alpha: 0.9),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: cs.primary.withOpacity(0.25),
+            color: cs.primary.withValues(alpha: 0.25),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -209,7 +217,7 @@ class _HeroCard extends StatelessWidget {
           Text(
             'Send multiple files in one tap. Receiver scans a QR code and the files drop straight into Downloads.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: cs.onPrimary.withOpacity(0.9),
+              color: cs.onPrimary.withValues(alpha: 0.9),
               height: 1.4,
             ),
           ),
@@ -234,7 +242,6 @@ class _ActionGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth > 520;
         final children = [
           _ActionCard(
             cs: cs,
@@ -289,7 +296,7 @@ class _ActionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: cs.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.5)),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -297,7 +304,7 @@ class _ActionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: accent.withOpacity(0.12),
+              color: accent.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(icon, color: accent),
@@ -344,9 +351,9 @@ class _HowItWorks extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: cs.surface.withOpacity(0.9),
+        color: cs.surface.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.4)),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -424,7 +431,7 @@ class _NetworkHint extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: cs.tertiaryContainer.withOpacity(0.35),
+        color: cs.tertiaryContainer.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(

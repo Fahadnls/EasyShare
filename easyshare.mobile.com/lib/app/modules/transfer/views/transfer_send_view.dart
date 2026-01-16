@@ -90,6 +90,13 @@ class _TopBar extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_rounded),
         ),
         const SizedBox(width: 8),
+        Image.asset(
+          'assets/logo.png',
+          width: 22,
+          height: 22,
+          fit: BoxFit.contain,
+        ),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             title,
