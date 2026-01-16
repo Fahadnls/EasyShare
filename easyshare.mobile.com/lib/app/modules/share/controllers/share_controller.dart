@@ -1,10 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:get/get.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import '../../../data/service/download_service.dart';
 
 class ChatMessage {
   final bool me;
@@ -12,8 +18,15 @@ class ChatMessage {
   ChatMessage({required this.me, required this.text});
 }
 
+class PendingFile {
+  final String name;
+  final Uint8List bytes;
+  const PendingFile({required this.name, required this.bytes});
+}
+
 class ShareController extends GetxController {
-  BluetoothDevice get device => Get.arguments as BluetoothDevice;
+  late final BluetoothDevice device;
+  PendingFile? _pendingFile;
 
   final connectionState = 'Connecting...'.obs;
   final isConnected = false.obs;
@@ -25,6 +38,7 @@ class ShareController extends GetxController {
 
   // File receive buffer
   final _rxBuffer = BytesBuilder();
+  BytesBuilder _fileBuffer = BytesBuilder();
   bool _receivingFile = false;
   String _fileName = '';
   int _fileSize = 0;
@@ -33,7 +47,34 @@ class ShareController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _readArguments();
     _connect();
+  }
+
+  void _readArguments() {
+    final args = Get.arguments;
+    if (args is BluetoothDevice) {
+      device = args;
+      return;
+    }
+    if (args is Map) {
+      final argDevice = args['device'];
+      if (argDevice is BluetoothDevice) {
+        device = argDevice;
+      }
+      final fileName = args['fileName'];
+      final fileBytes = args['fileBytes'];
+      if (fileName is String && fileBytes is List<int>) {
+        _pendingFile = PendingFile(
+          name: fileName,
+          bytes: Uint8List.fromList(fileBytes),
+        );
+      }
+      if (argDevice is BluetoothDevice) {
+        return;
+      }
+    }
+    throw StateError('Missing Bluetooth device argument');
   }
 
   Future<void> _connect() async {
@@ -43,6 +84,10 @@ class ShareController extends GetxController {
       _conn = await BluetoothConnection.toAddress(device.address);
       isConnected.value = true;
       connectionState.value = 'Connected';
+
+      if (_pendingFile != null) {
+        await _sendPendingFile();
+      }
 
       _sub = _conn!.input!.listen(
         _onData,
@@ -62,7 +107,7 @@ class ShareController extends GetxController {
     }
   }
 
-  void _onData(Uint8List data) {
+  Future<void> _onData(Uint8List data) async {
     // Simple protocol:
     // Text line messages end with \n
     // File header: "FILE:<name>:<size>\n" then raw bytes of <size>
@@ -91,6 +136,7 @@ class ShareController extends GetxController {
             _fileSize = int.tryParse(parts[2]) ?? 0;
             _received = 0;
             _receivingFile = true;
+            _fileBuffer = BytesBuilder();
             messages.add(
               ChatMessage(
                 me: false,
@@ -111,7 +157,7 @@ class ShareController extends GetxController {
         final needed = _fileSize - _received;
         if (bytesNow.length >= needed) {
           // got full file
-          final fileBytes = bytesNow.sublist(0, needed);
+          _fileBuffer.add(bytesNow.sublist(0, needed));
           _received += needed;
 
           // remaining bytes might contain next messages
@@ -121,15 +167,21 @@ class ShareController extends GetxController {
 
           _receivingFile = false;
 
-          // For demo: we are not saving to storage to avoid extra permissions.
-          // If you want save: use path_provider + write to app directory.
+          final fileBytes = _fileBuffer.toBytes();
+          _fileBuffer = BytesBuilder();
+
+          final savedPath = await _saveReceivedFile(fileBytes, _fileName);
+          final savedText = savedPath == null
+              ? '❗ Could not save file. Check storage permission.'
+              : '✅ File saved to: $savedPath';
           messages.add(
             ChatMessage(
               me: false,
-              text: '✅ File received: $_fileName (not saved, demo mode)',
+              text: '✅ File received: $_fileName\n$savedText',
             ),
           );
         } else {
+          _fileBuffer.add(bytesNow);
           _received += bytesNow.length;
           _rxBuffer.clear();
           messages.add(
@@ -142,6 +194,64 @@ class ShareController extends GetxController {
         }
       }
     }
+  }
+
+  Future<String?> _saveReceivedFile(Uint8List bytes, String name) async {
+    if (!Platform.isAndroid) return null;
+    final tempDir = await getTemporaryDirectory();
+    final safeName = _sanitizeName(name);
+    final tempFile = File(p.join(tempDir.path, 'bt_$safeName'));
+    await tempFile.writeAsBytes(bytes, flush: true);
+
+    final savedPath = await _saveToDownloads(tempFile.path, safeName);
+    await tempFile.delete().catchError((_) {});
+    return savedPath;
+  }
+
+  Future<String> _dedupeFileName(Directory dir, String name) async {
+    final base = p.basenameWithoutExtension(name);
+    final ext = p.extension(name);
+    var candidate = name;
+    var index = 1;
+    while (await File(p.join(dir.path, candidate)).exists()) {
+      candidate = '${base}_$index$ext';
+      index++;
+    }
+    return candidate;
+  }
+
+  String _sanitizeName(String name) {
+    final cleaned = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    return cleaned.isEmpty ? 'file.bin' : cleaned;
+  }
+
+  Future<bool> _ensureStoragePermission() async {
+    if (!Platform.isAndroid) return true;
+    final sdk = await DownloadService.getSdkInt();
+    if (sdk >= 29) return true;
+    final storage = await Permission.storage.request();
+    return storage.isGranted;
+  }
+
+  Future<String?> _saveToDownloads(String tempPath, String name) async {
+    if (!Platform.isAndroid) return null;
+    final sdk = await DownloadService.getSdkInt();
+    if (sdk >= 29) {
+      return DownloadService.saveToDownloads(tempPath, name);
+    }
+    final permitted = await _ensureStoragePermission();
+    if (!permitted) return null;
+    Directory target = Directory('/storage/emulated/0/Download');
+    if (!await target.exists()) {
+      final fallback = await getExternalStorageDirectory();
+      if (fallback == null) return null;
+      target = Directory(p.join(fallback.path, 'Download'));
+    }
+    await target.create(recursive: true);
+    final safeName = await _dedupeFileName(target, name);
+    final file = File(p.join(target.path, safeName));
+    await file.writeAsBytes(await File(tempPath).readAsBytes(), flush: true);
+    return file.path;
   }
 
   Future<void> sendText(String text) async {
@@ -183,6 +293,29 @@ class ShareController extends GetxController {
         ChatMessage(
           me: true,
           text: '📤 Sent file: $name (${bytes.length} bytes)',
+        ),
+      );
+    } catch (_) {
+      Get.snackbar('File', 'Failed to send file');
+    }
+  }
+
+  Future<void> _sendPendingFile() async {
+    if (_pendingFile == null) return;
+    if (!isConnected.value || _conn == null) return;
+
+    final file = _pendingFile!;
+    _pendingFile = null;
+    try {
+      final header = utf8.encode('FILE:${file.name}:${file.bytes.length}\n');
+      _conn!.output.add(Uint8List.fromList(header));
+      _conn!.output.add(Uint8List.fromList(file.bytes));
+      await _conn!.output.allSent;
+
+      messages.add(
+        ChatMessage(
+          me: true,
+          text: '📤 Sent file: ${file.name} (${file.bytes.length} bytes)',
         ),
       );
     } catch (_) {

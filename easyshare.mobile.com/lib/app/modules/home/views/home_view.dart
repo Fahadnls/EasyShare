@@ -1,8 +1,10 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+import 'package:get/get.dart';
 
 import '../controllers/home_controller.dart';
+import '../../../routes/app_pages.dart';
 
 class HomeView extends GetView<HomeController> {
   const HomeView({super.key});
@@ -29,6 +31,32 @@ class HomeView extends GetView<HomeController> {
           children: [
             _topCard(cs, enabled),
             const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _actionCard(
+                    cs: cs,
+                    icon: Icons.send,
+                    title: 'Send',
+                    subtitle: 'Pick a file and send to a paired device.',
+                    buttonText: 'Send File',
+                    onPressed: _startSendFlow,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _actionCard(
+                    cs: cs,
+                    icon: Icons.download,
+                    title: 'Receive',
+                    subtitle: 'Connect to a device to receive files.',
+                    buttonText: 'Receive',
+                    onPressed: _startReceiveFlow,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
 
             Row(
               children: [
@@ -147,6 +175,65 @@ class HomeView extends GetView<HomeController> {
         ],
       ),
     );
+  }
+
+  Widget _actionCard({
+    required ColorScheme cs,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String buttonText,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: cs.primary,
+            child: Icon(icon, color: cs.onPrimary, size: 18),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: onPressed,
+            child: Text(buttonText),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startSendFlow() async {
+    final res = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: false,
+    );
+    if (res == null || res.files.isEmpty) return;
+
+    Get.toNamed(
+      Routes.TRANSFER_SEND,
+      arguments: {'files': res.files},
+    );
+  }
+
+  Future<void> _startReceiveFlow() async {
+    Get.toNamed(Routes.TRANSFER_RECEIVE);
   }
 
   Widget _deviceTile({

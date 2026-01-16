@@ -40,30 +40,30 @@ class HomeController extends GetxController {
   Future<void> requestBtPermissions() async {
     // Android 12+: Nearby devices permissions
     // Android <= 11: Location permission needed for discovery
-    final api = await _androidSdkInt();
-    if (api >= 31) {
-      final res1 = await Permission.bluetoothScan.request();
-      final res2 = await Permission.bluetoothConnect.request();
-      if (!res1.isGranted || !res2.isGranted) {
-        Get.snackbar('Permission', 'Bluetooth permissions denied');
-      }
-    } else {
+    final res1 = await Permission.bluetoothScan.request();
+    final res2 = await Permission.bluetoothConnect.request();
+    if (!res1.isGranted || !res2.isGranted) {
+      // On pre-12 devices these may be denied/not applicable.
+      // We'll still request location for scan compatibility.
       final res = await Permission.location.request();
       if (!res.isGranted) {
         Get.snackbar(
           'Permission',
-          'Location permission denied (required for scan)',
+          'Bluetooth/Location permissions denied',
         );
       }
     }
   }
 
-  Future<int> _androidSdkInt() async {
-    // permission_handler exposes it via androidInfo in device_info_plus,
-    // but to keep dependencies minimal, we just assume 31+ devices will still work
-    // if permissions are requested. We'll return 31 as safe default.
-    // If you want exact: add device_info_plus and read sdkInt.
-    return 31;
+  Future<bool> _ensureConnectPermission() async {
+    final status = await Permission.bluetoothConnect.status;
+    if (status.isGranted) return true;
+    final res = await Permission.bluetoothConnect.request();
+    if (!res.isGranted) {
+      Get.snackbar('Permission', 'Bluetooth connect permission denied');
+      return false;
+    }
+    return true;
   }
 
   Future<void> enableBluetooth() async {
@@ -71,12 +71,15 @@ class HomeController extends GetxController {
     final enabled = await bt.requestEnable();
     isEnabled.value = enabled ?? false;
     if (isEnabled.value) {
+      await _ensureConnectPermission();
       await refreshBonded();
     }
   }
 
   Future<void> refreshBonded() async {
     try {
+      final canRead = await _ensureConnectPermission();
+      if (!canRead) return;
       final list = await bt.getBondedDevices();
       bonded.assignAll(list);
     } catch (e) {
@@ -119,6 +122,21 @@ class HomeController extends GetxController {
 
   void openChat(BluetoothDevice device) {
     Get.toNamed(Routes.SHARE, arguments: device);
+  }
+
+  void openShareWithFile(
+    BluetoothDevice device,
+    String name,
+    List<int> bytes,
+  ) {
+    Get.toNamed(
+      Routes.SHARE,
+      arguments: {
+        'device': device,
+        'fileName': name,
+        'fileBytes': bytes,
+      },
+    );
   }
 
   @override
