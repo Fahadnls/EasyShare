@@ -1,12 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:get/get.dart';
 
-import '../controllers/home_controller.dart';
 import '../../../routes/app_pages.dart';
 
-class HomeView extends GetView<HomeController> {
+class HomeView extends StatelessWidget {
   const HomeView({super.key});
 
   @override
@@ -14,205 +12,31 @@ class HomeView extends GetView<HomeController> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('BT Share (Android)'),
-        actions: [
-          IconButton(
-            onPressed: controller.refreshBonded,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      body: Obx(() {
-        final enabled = controller.isEnabled.value;
-
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _topCard(cs, enabled),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _actionCard(
-                    cs: cs,
-                    icon: Icons.send,
-                    title: 'Send',
-                    subtitle: 'Pick a file and send to a paired device.',
-                    buttonText: 'Send File',
-                    onPressed: _startSendFlow,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _actionCard(
-                    cs: cs,
-                    icon: Icons.download,
-                    title: 'Receive',
-                    subtitle: 'Connect to a device to receive files.',
-                    buttonText: 'Receive',
-                    onPressed: _startReceiveFlow,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: enabled
-                        ? controller.startDiscovery
-                        : controller.enableBluetooth,
-                    icon: Icon(enabled ? Icons.search : Icons.bluetooth),
-                    label: Text(enabled ? 'Scan Nearby' : 'Enable Bluetooth'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Obx(() {
-                  return IconButton.filledTonal(
-                    onPressed: controller.isDiscovering.value
-                        ? controller.stopDiscovery
-                        : null,
-                    icon: const Icon(Icons.stop),
-                  );
-                }),
-              ],
-            ),
-
-            const SizedBox(height: 18),
-            const Text(
-              'Paired Devices',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Obx(() {
-              if (controller.bonded.isEmpty) {
-                return const Text(
-                  'No paired devices found. Pair from Android settings first.',
-                );
-              }
-              return Column(
-                children: controller.bonded
-                    .map(
-                      (d) => _deviceTile(
-                        title: d.name ?? 'Unknown',
-                        subtitle: d.address,
-                        trailing: const Icon(Icons.chat_bubble_outline),
-                        onTap: () => controller.openChat(d),
-                      ),
-                    )
-                    .toList(),
-              );
-            }),
-
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Nearby Devices',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                Obx(
-                  () => controller.isDiscovering.value
-                      ? const Text('Scanning...')
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Obx(() {
-              if (controller.discovered.isEmpty) {
-                return const Text('No nearby devices yet. Tap "Scan Nearby".');
-              }
-              return Column(
-                children: controller.discovered.map((r) {
-                  final BluetoothDevice d = r.device;
-                  final name = d.name ?? 'Unknown';
-                  final rssi = r.rssi;
-                  return _deviceTile(
-                    title: name,
-                    subtitle: '${d.address}  •  RSSI $rssi',
-                    trailing: const Icon(Icons.chat_bubble_outline),
-                    onTap: () => controller.openChat(d),
-                  );
-                }).toList(),
-              );
-            }),
-          ],
-        );
-      }),
-    );
-  }
-
-  Widget _topCard(ColorScheme cs, bool enabled) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
+      body: Stack(
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: enabled ? cs.primary : cs.outlineVariant,
-            child: Icon(
-              enabled ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-              color: cs.onPrimary,
+          _AmbientBackground(colorScheme: cs),
+          SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
+              children: [
+                _reveal(delay: 0, child: _Header(cs: cs)),
+                const SizedBox(height: 18),
+                _reveal(delay: 220, child: _HeroCard(cs: cs)),
+                const SizedBox(height: 18),
+                _reveal(
+                  delay: 220,
+                  child: _ActionGrid(
+                    cs: cs,
+                    onSend: _startSendFlow,
+                    onReceive: _startReceiveFlow,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _reveal(delay: 320, child: _HowItWorks(cs: cs)),
+                const SizedBox(height: 18),
+                _reveal(delay: 420, child: _NetworkHint(cs: cs)),
+              ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              enabled ? 'Bluetooth is ON' : 'Bluetooth is OFF',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _actionCard({
-    required ColorScheme cs,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String buttonText,
-    required VoidCallback onPressed,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: cs.primary,
-            child: Icon(icon, color: cs.onPrimary, size: 18),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
-          ),
-          const SizedBox(height: 10),
-          FilledButton(
-            onPressed: onPressed,
-            child: Text(buttonText),
           ),
         ],
       ),
@@ -226,29 +50,396 @@ class HomeView extends GetView<HomeController> {
     );
     if (res == null || res.files.isEmpty) return;
 
-    Get.toNamed(
-      Routes.TRANSFER_SEND,
-      arguments: {'files': res.files},
-    );
+    Get.toNamed(Routes.TRANSFER_SEND, arguments: {'files': res.files});
   }
 
   Future<void> _startReceiveFlow() async {
     Get.toNamed(Routes.TRANSFER_RECEIVE);
   }
 
-  Widget _deviceTile({
-    required String title,
-    required String subtitle,
-    required Widget trailing,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      elevation: 0,
-      child: ListTile(
-        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-        trailing: trailing,
-        onTap: onTap,
+  Widget _reveal({required Widget child, int delay = 0}) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 700 + delay),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, _) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * 18),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AmbientBackground extends StatelessWidget {
+  const _AmbientBackground({required this.colorScheme});
+
+  final ColorScheme colorScheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primaryContainer.withOpacity(0.65),
+            colorScheme.surface,
+            colorScheme.tertiaryContainer.withOpacity(0.5),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Stack(
+        children: const [
+          Positioned(
+            top: -80,
+            right: -60,
+            child: _GlowBlob(color: Color(0x3381C784), size: 220),
+          ),
+          Positioned(
+            bottom: -90,
+            left: -50,
+            child: _GlowBlob(color: Color(0x3366D2A5), size: 240),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlowBlob extends StatelessWidget {
+  const _GlowBlob({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(colors: [color, Colors.transparent]),
+      ),
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  const _Header({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cs.primary,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(Icons.auto_awesome, color: cs.onPrimary),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'EasyShare',
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            Text(
+              'QR Wi-Fi Transfer',
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _HeroCard extends StatelessWidget {
+  const _HeroCard({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          colors: [cs.primary.withOpacity(0.9), cs.tertiary.withOpacity(0.9)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: cs.primary.withOpacity(0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Fast, private, offline-ready',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: cs.onPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Send multiple files in one tap. Receiver scans a QR code and the files drop straight into Downloads.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: cs.onPrimary.withOpacity(0.9),
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionGrid extends StatelessWidget {
+  const _ActionGrid({
+    required this.cs,
+    required this.onSend,
+    required this.onReceive,
+  });
+
+  final ColorScheme cs;
+  final VoidCallback onSend;
+  final VoidCallback onReceive;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth > 520;
+        final children = [
+          _ActionCard(
+            cs: cs,
+            title: 'Send Files',
+            subtitle: 'Pick one or many files to share.',
+            icon: Icons.north_east_rounded,
+            accent: cs.primary,
+            onPressed: onSend,
+          ),
+          _ActionCard(
+            cs: cs,
+            title: 'Receive Files',
+            subtitle: 'Scan the QR and watch the progress.',
+            icon: Icons.south_west_rounded,
+            accent: cs.tertiary,
+            onPressed: onReceive,
+          ),
+        ];
+        return Row(
+          children: [
+            Expanded(child: children[0]),
+            const SizedBox(width: 16),
+            Expanded(child: children[1]),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
+    required this.cs,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.onPressed,
+  });
+
+  final ColorScheme cs;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: accent),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              backgroundColor: accent,
+              foregroundColor: cs.onPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            child: const Text('Start'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HowItWorks extends StatelessWidget {
+  const _HowItWorks({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'How it works',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          _StepRow(
+            cs: cs,
+            index: '01',
+            text: 'Pick files on the sender device.',
+          ),
+          _StepRow(cs: cs, index: '02', text: 'Receiver scans the QR code.'),
+          _StepRow(
+            cs: cs,
+            index: '03',
+            text: 'Files land in Downloads automatically.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepRow extends StatelessWidget {
+  const _StepRow({required this.cs, required this.index, required this.text});
+
+  final ColorScheme cs;
+  final String index;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: cs.primaryContainer,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              index,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: cs.onPrimaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NetworkHint extends StatelessWidget {
+  const _NetworkHint({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.tertiaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi_rounded, color: cs.tertiary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Both devices must be on the same Wi-Fi network.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ),
+        ],
       ),
     );
   }

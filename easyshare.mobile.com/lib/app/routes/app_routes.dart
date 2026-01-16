@@ -4,7 +4,6 @@ part of 'app_pages.dart';
 abstract class Routes {
   Routes._();
   static const HOME = _Paths.HOME;
-  static const SHARE = _Paths.SHARE;
   static const TRANSFER_SEND = _Paths.TRANSFER_SEND;
   static const TRANSFER_RECEIVE = _Paths.TRANSFER_RECEIVE;
 }
@@ -12,7 +11,6 @@ abstract class Routes {
 abstract class _Paths {
   _Paths._();
   static const HOME = '/home';
-  static const SHARE = '/share';
   static const TRANSFER_SEND = '/transfer-send';
   static const TRANSFER_RECEIVE = '/transfer-receive';
 }
