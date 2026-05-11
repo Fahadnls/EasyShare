@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -44,13 +45,35 @@ class HomeView extends StatelessWidget {
   }
 
   Future<void> _startSendFlow() async {
-    final res = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      withData: false,
-    );
-    if (res == null || res.files.isEmpty) return;
+    if (Platform.isMacOS) {
+      Get.toNamed(Routes.TRANSFER_SEND);
+      return;
+    }
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: false,
+      );
+      if (res == null || res.files.isEmpty) return;
 
-    Get.toNamed(Routes.TRANSFER_SEND, arguments: {'files': res.files});
+      final validFiles = res.files.where((file) => file.path != null).toList();
+      if (validFiles.isEmpty) {
+        Get.snackbar(
+          'File access failed',
+          'The selected files could not be opened. Try picking them again.',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+        return;
+      }
+
+      Get.toNamed(Routes.TRANSFER_SEND, arguments: {'files': validFiles});
+    } catch (_) {
+      Get.snackbar(
+        'File picker error',
+        'Picking files failed. Check file permissions and try again.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
   }
 
   Future<void> _startReceiveFlow() async {
@@ -370,7 +393,11 @@ class _HowItWorks extends StatelessWidget {
             index: '01',
             text: 'Pick files on the sender device.',
           ),
-          _StepRow(cs: cs, index: '02', text: 'Receiver scans the QR code.'),
+          _StepRow(
+            cs: cs,
+            index: '02',
+            text: 'Receiver scans the QR or enters the transfer code.',
+          ),
           _StepRow(
             cs: cs,
             index: '03',

@@ -16,49 +16,19 @@ class TransferReceiveView extends GetView<TransferReceiveController> {
           _ReceiveBackground(cs: cs),
           SafeArea(
             child: Obx(() {
-              if (controller.isScanning.value) {
-                return Column(
+              final showSetup =
+                  !controller.isDownloading.value && controller.files.isEmpty;
+              if (showSetup) {
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
                   children: [
                     _TopBar(title: 'Receive'),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(24),
-                          child: Stack(
-                            children: [
-                              MobileScanner(
-                                onDetect: (capture) {
-                                  final barcodes = capture.barcodes;
-                                  if (barcodes.isEmpty) return;
-                                  final value = barcodes.first.rawValue;
-                                  if (value == null || value.isEmpty) return;
-                                  controller.startFromQr(value);
-                                },
-                              ),
-                              Positioned.fill(
-                                child: CustomPaint(
-                                  painter: _ScannerFramePainter(
-                                    color: cs.primary,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                      child: Text(
-                        controller.statusText.value,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: cs.onSurfaceVariant,
-                            ),
-                      ),
-                    ),
+                    if (controller.supportsScanner) ...[
+                      const SizedBox(height: 12),
+                      _ScannerCard(cs: cs),
+                    ],
+                    const SizedBox(height: 16),
+                    _ManualCodeCard(cs: cs),
                   ],
                 );
               }
@@ -66,7 +36,13 @@ class TransferReceiveView extends GetView<TransferReceiveController> {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
                 children: [
-                  _TopBar(title: 'Receiving'),
+                  _TopBar(
+                    title: 'Receiving',
+                    action: TextButton(
+                      onPressed: controller.resetReceiveFlow,
+                      child: const Text('New transfer'),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   _ProgressSummary(cs: cs),
                   const SizedBox(height: 16),
@@ -95,7 +71,7 @@ class _ReceiveBackground extends StatelessWidget {
         gradient: LinearGradient(
           colors: [
             cs.surface,
-            cs.tertiaryContainer.withOpacity(0.45),
+            cs.tertiaryContainer.withValues(alpha: 0.45),
             cs.surface,
           ],
           begin: Alignment.topRight,
@@ -107,9 +83,10 @@ class _ReceiveBackground extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.title});
+  const _TopBar({required this.title, this.action});
 
   final String title;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -131,9 +108,134 @@ class _TopBar extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const Spacer(),
+          if (action != null) action!,
+        ],
+      ),
+    );
+  }
+}
+
+class _ScannerCard extends GetView<TransferReceiveController> {
+  const _ScannerCard({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          height: 360,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Stack(
+              children: [
+                MobileScanner(
+                  onDetect: (capture) {
+                    final barcodes = capture.barcodes;
+                    if (barcodes.isEmpty) return;
+                    final value = barcodes.first.rawValue;
+                    if (value == null || value.isEmpty) return;
+                    controller.startFromQr(value);
+                  },
                 ),
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _ScannerFramePainter(color: cs.primary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          controller.statusText.value,
+          textAlign: TextAlign.center,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+class _ManualCodeCard extends GetView<TransferReceiveController> {
+  const _ManualCodeCard({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: cs.tertiary.withValues(alpha: 0.2),
+            blurRadius: 16,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            controller.supportsScanner
+                ? 'Manual transfer code'
+                : 'Transfer code',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Scan the QR or paste the sender code here. Supported format: 192.168.x.x:port#token',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: controller.manualCodeController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: '192.168.x.x:port#token',
+              filled: true,
+              fillColor: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: controller.isDownloading.value
+                  ? null
+                  : controller.startFromManualCode,
+              icon: const Icon(Icons.download_rounded),
+              label: const Text('Receive with code'),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            controller.statusText.value,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
       ),
@@ -155,7 +257,7 @@ class _ProgressSummary extends GetView<TransferReceiveController> {
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: cs.tertiary.withOpacity(0.2),
+            color: cs.tertiary.withValues(alpha: 0.2),
             blurRadius: 16,
             offset: const Offset(0, 10),
           ),
@@ -166,9 +268,10 @@ class _ProgressSummary extends GetView<TransferReceiveController> {
         children: [
           Text(
             controller.statusText.value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
           LinearProgressIndicator(
@@ -181,9 +284,9 @@ class _ProgressSummary extends GetView<TransferReceiveController> {
           const SizedBox(height: 8),
           Text(
             'Saving to Downloads',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: cs.onSurfaceVariant,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
       ),
@@ -203,9 +306,9 @@ class _FileProgressCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: cs.surface.withOpacity(0.9),
+        color: cs.surface.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.4)),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -214,14 +317,16 @@ class _FileProgressCard extends StatelessWidget {
             item.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
+
           Obx(() {
-            final progress =
-                item.size == 0 ? 0.0 : item.received.value / item.size;
+            final progress = item.size == 0
+                ? 0.0
+                : item.received.value / item.size;
             return LinearProgressIndicator(
               value: progress,
               minHeight: 6,
@@ -242,7 +347,7 @@ class _ScannerFramePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = color.withOpacity(0.9)
+      ..color = color.withValues(alpha: 0.9)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
 

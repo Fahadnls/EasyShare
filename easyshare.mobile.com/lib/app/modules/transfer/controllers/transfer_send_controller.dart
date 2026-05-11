@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:get/get.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
+import '../../../data/service/desktop_drop_service.dart';
+
 class SendFileItem {
   final String id;
   final String name;
@@ -24,17 +26,23 @@ class SendFileItem {
 class TransferSendController extends GetxController {
   final isServing = false.obs;
   final serverUrl = ''.obs;
+  final transferCode = ''.obs;
   final statusText = ''.obs;
 
   final files = <SendFileItem>[].obs;
 
   HttpServer? _server;
   String _token = '';
+  StreamSubscription<List<String>>? _dropSubscription;
 
   @override
   void onInit() {
     super.onInit();
     _readArgs();
+    _listenForDesktopDrops();
+    if (Platform.isMacOS && files.isEmpty) {
+      statusText.value = 'Drag files here or choose files to start sharing';
+    }
     if (files.isNotEmpty) {
       startServer();
     }
@@ -68,6 +76,58 @@ class TransferSendController extends GetxController {
     files.assignAll(loaded);
   }
 
+  void _listenForDesktopDrops() {
+    if (!Platform.isMacOS) return;
+    _dropSubscription = DesktopDropService.fileDrops().listen((paths) {
+      if (paths.isEmpty) return;
+      addFilesFromPaths(paths);
+    });
+  }
+
+  Future<void> pickFiles() async {
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: false,
+      );
+      if (res == null || res.files.isEmpty) return;
+      final validFiles = res.files.where((file) => file.path != null).toList();
+      if (validFiles.isEmpty) {
+        statusText.value = 'Selected files are not accessible';
+        return;
+      }
+      _loadFiles(validFiles);
+      await startServer();
+    } catch (_) {
+      statusText.value = 'Failed to pick files';
+    }
+  }
+
+  Future<void> addFilesFromPaths(List<String> paths) async {
+    final loaded = <SendFileItem>[];
+    for (var i = 0; i < paths.length; i++) {
+      final path = paths[i];
+      final file = File(path);
+      if (!await file.exists()) continue;
+      final stat = await file.stat();
+      loaded.add(
+        SendFileItem(
+          id: '$i',
+          name: path.split(Platform.pathSeparator).last,
+          path: path,
+          size: stat.size,
+        ),
+      );
+    }
+    if (loaded.isEmpty) {
+      statusText.value = 'Dropped files are not accessible';
+      return;
+    }
+    files.assignAll(loaded);
+    statusText.value = 'Files added';
+    await startServer();
+  }
+
   Future<void> startServer() async {
     if (files.isEmpty) {
       statusText.value = 'No files selected';
@@ -89,6 +149,7 @@ class TransferSendController extends GetxController {
       }
 
       serverUrl.value = 'http://$ip:${_server!.port}/meta?token=$_token';
+      transferCode.value = '$ip:${_server!.port}#$_token';
       isServing.value = true;
       statusText.value = 'Ready to share';
     } catch (e) {
@@ -101,11 +162,26 @@ class TransferSendController extends GetxController {
     try {
       final info = NetworkInfo();
       final ip = await info.getWifiIP();
-      if (ip == null || ip.isEmpty) return null;
-      return ip;
-    } catch (_) {
-      return null;
-    }
+      if (ip != null && ip.isNotEmpty) {
+        return ip;
+      }
+    } catch (_) {}
+
+    try {
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (addr.isLoopback) continue;
+          if (addr.address.startsWith('169.254.')) continue;
+          return addr.address;
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   String _randomToken() {
@@ -184,6 +260,7 @@ class TransferSendController extends GetxController {
   Future<void> stopServer() async {
     isServing.value = false;
     serverUrl.value = '';
+    transferCode.value = '';
     statusText.value = '';
     if (_server != null) {
       await _server!.close(force: true);
@@ -193,6 +270,7 @@ class TransferSendController extends GetxController {
 
   @override
   void onClose() {
+    _dropSubscription?.cancel();
     stopServer();
     super.onClose();
   }
