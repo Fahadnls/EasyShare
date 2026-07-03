@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 class DownloadService {
-  static const MethodChannel _channel = MethodChannel('easyshare/downloads');
+  static const MethodChannel _channel = MethodChannel('nextshare/downloads');
 
   static Future<int> getSdkInt() async {
     if (!Platform.isAndroid) return 0;
@@ -11,18 +11,22 @@ class DownloadService {
     return sdk ?? 0;
   }
 
+  static Future<int?> getAvailableBytes() async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMethod<int>('getAvailableBytes');
+  }
+
   static Future<String?> saveToDownloads(
     String sourcePath,
-    String fileName,
-  ) async {
+    String fileName, {
+    String? relativeDirectory,
+  }) async {
     if (!Platform.isAndroid) return null;
-    final res = await _channel.invokeMethod<String>(
-      'saveToDownloads',
-      {
-        'path': sourcePath,
-        'name': fileName,
-      },
-    );
+    final res = await _channel.invokeMethod<String>('saveToDownloads', {
+      'path': sourcePath,
+      'name': fileName,
+      'relativeDirectory': relativeDirectory,
+    });
     return res;
   }
 }

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "easyshare" "\0"
+            VALUE "CompanyName", "com.nls.nextshare" "\0"
+            VALUE "FileDescription", "Next Share" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "easyshare" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "easyshare.exe" "\0"
-            VALUE "ProductName", "easyshare" "\0"
+            VALUE "InternalName", "nextshare" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.nls.nextshare. All rights reserved." "\0"
+            VALUE "OriginalFilename", "nextshare.exe" "\0"
+            VALUE "ProductName", "Next Share" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
