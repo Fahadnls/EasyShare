@@ -1,16 +1,29 @@
-# easyshare
+Fahads-MacBook-Air:easyshare.mobile.com fahadayub$ keytool -genkey -v -keystore keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias nextshare
+Enter keystore password:  
+Re-enter new password: 
+What is your first and last name?
+  [Unknown]:  next level software
+What is the name of your organizational unit?
+  [Unknown]:  Application development
+What is the name of your organization?
+  [Unknown]:   Next Level Software
+What is the name of your City or Locality?
+  [Unknown]:  fsd
+What is the name of your State or Province?
+  [Unknown]:  punjab
+What is the two-letter country code for this unit?
+  [Unknown]:  pk
+Is CN=next level software, OU=Application development, O=" Next Level Software", L=fsd, ST=punjab, C=pk correct?
+  [no]:  yes
 
-A new Flutter project.
+Generating 2,048 bit RSA key pair and self-signed certificate (SHA384withRSA) with a validity of 10,000 days
+        for: CN=next level software, OU=Application development, O=" Next Level Software", L=fsd, ST=punjab, C=pk
+[Storing keystore.jks]
 
-## Getting Started
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```
+storePassword=nextshare@nls
+keyPassword=nextshare@nls
+keyAlias=nextshare
+storeFile=keystore.jks
+```

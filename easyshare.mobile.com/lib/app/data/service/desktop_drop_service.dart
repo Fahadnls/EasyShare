@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 
 class DesktopDropService {
   static const EventChannel _eventChannel = EventChannel(
-    'easyshare.desktop_drop/events',
+    'nextshare.desktop_drop/events',
   );
 
   static Stream<List<String>> fileDrops() {

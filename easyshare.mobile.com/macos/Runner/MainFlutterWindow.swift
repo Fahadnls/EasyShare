@@ -31,10 +31,77 @@ class MainFlutterWindow: NSWindow, NSDraggingDestination {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     let eventChannel = FlutterEventChannel(
-      name: "easyshare.desktop_drop/events",
+      name: "nextshare.desktop_drop/events",
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
     eventChannel.setStreamHandler(dropStreamHandler)
+    let platformChannel = FlutterMethodChannel(
+      name: "nextshare/platform_files",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    platformChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "openPath":
+        guard
+          let arguments = call.arguments as? [String: Any],
+          let path = arguments["path"] as? String
+        else {
+          result(false)
+          return
+        }
+        result(NSWorkspace.shared.open(URL(fileURLWithPath: path)))
+      case "persistFolderAccess":
+        guard
+          let arguments = call.arguments as? [String: Any],
+          let path = arguments["path"] as? String
+        else {
+          result(false)
+          return
+        }
+        do {
+          let url = URL(fileURLWithPath: path, isDirectory: true)
+          let bookmark = try url.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+          )
+          UserDefaults.standard.set(bookmark, forKey: "nextshare.saveFolderBookmark")
+          result(true)
+        } catch {
+          result(false)
+        }
+      case "restoreFolderAccess":
+        guard
+          let bookmark = UserDefaults.standard.data(forKey: "nextshare.saveFolderBookmark")
+        else {
+          result(nil)
+          return
+        }
+        do {
+          var stale = false
+          let url = try URL(
+            resolvingBookmarkData: bookmark,
+            options: .withSecurityScope,
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+          )
+          if stale {
+            let refreshed = try url.bookmarkData(
+              options: .withSecurityScope,
+              includingResourceValuesForKeys: nil,
+              relativeTo: nil
+            )
+            UserDefaults.standard.set(refreshed, forKey: "nextshare.saveFolderBookmark")
+          }
+          _ = url.startAccessingSecurityScopedResource()
+          result(url.path)
+        } catch {
+          result(nil)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
     registerForDraggedTypes([.fileURL])
 
     super.awakeFromNib()
