@@ -34,7 +34,20 @@ class SettingsView extends GetView<SettingsController> {
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.folder_open_rounded),
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFFFFB020,
+                              ).withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.folder_open_rounded,
+                              color: Color(0xFFFF9A00),
+                            ),
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -114,7 +127,18 @@ class SettingsView extends GetView<SettingsController> {
               Card(
                 child: ListTile(
                   contentPadding: const EdgeInsets.all(18),
-                  leading: const Icon(Icons.security_rounded),
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF22B573).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.security_rounded,
+                      color: Color(0xFF22B573),
+                    ),
+                  ),
                   title: const Text('Local transfers'),
                   subtitle: Text(
                     'Files move directly over the local network. Keep both devices on the same Wi-Fi.',

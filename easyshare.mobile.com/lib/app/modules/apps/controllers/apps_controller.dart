@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:get/get.dart';
 
 import '../../../data/service/platform_file_service.dart';
-import '../../../routes/app_pages.dart';
 
 class AppsController extends GetxController {
   final apps = <SharedAppInfo>[].obs;
   final selectedPackages = <String>{}.obs;
   final isLoading = false.obs;
+  final isPreparing = false.obs;
   final errorText = ''.obs;
 
   bool get isSupported => Platform.isAndroid;
@@ -47,7 +47,7 @@ class AppsController extends GetxController {
     selectedPackages.refresh();
   }
 
-  void sendSelected() {
+  Future<void> sendSelected() async {
     final selectedApps = apps
         .where((app) => selectedPackages.contains(app.packageName))
         .toList(growable: false);
@@ -55,6 +55,23 @@ class AppsController extends GetxController {
       Get.snackbar('Choose an app', 'Select at least one app to send.');
       return;
     }
-    Get.toNamed(Routes.TRANSFER_SEND, arguments: {'apps': selectedApps});
+    isPreparing.value = true;
+    errorText.value = '';
+    try {
+      final prepared = await PlatformFileService.prepareApps(
+        selectedApps.map((app) => app.packageName),
+      );
+      if (prepared.isEmpty) {
+        errorText.value = 'The selected app packages could not be prepared.';
+        Get.snackbar('App export failed', errorText.value);
+        return;
+      }
+      Get.back(result: prepared);
+    } catch (error) {
+      errorText.value = 'Could not prepare the selected apps: $error';
+      Get.snackbar('App export failed', errorText.value);
+    } finally {
+      isPreparing.value = false;
+    }
   }
 }

@@ -18,10 +18,12 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return GetMaterialApp(
       debugShowCheckedModeBanner: false,
+
       title: 'Next Share',
       initialRoute: AppPages.INITIAL,
 
       getPages: AppPages.routes,
+
       theme: AppTheme.light,
     );
   }

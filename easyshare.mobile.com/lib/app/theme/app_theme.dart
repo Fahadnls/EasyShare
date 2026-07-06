@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   static const Color ink = Color(0xFF09111F);
-  static const Color paper = Color(0xFFF4F9FF);
+  static const Color paper = Color.fromARGB(255, 255, 255, 255);
   static const Color paperStrong = Color(0xFFFFFFFF);
   static const Color sky = Color(0xFF39A9F1);
   static const Color skySoft = Color(0xFFDDF2FF);
@@ -119,6 +119,18 @@ class AppTheme {
           foregroundColor: paperStrong,
           minimumSize: const Size(0, 52),
           textStyle: textTheme.labelLarge,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: deepBlue,
+          minimumSize: const Size(0, 52),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          textStyle: textTheme.labelLarge,
+          side: const BorderSide(color: deepBlue, width: 1.4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),

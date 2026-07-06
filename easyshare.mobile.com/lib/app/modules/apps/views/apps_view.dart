@@ -36,12 +36,21 @@ class AppsView extends GetView<AppsController> {
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
                 child: Obx(
                   () => FilledButton.icon(
-                    onPressed: controller.selectedPackages.isEmpty
+                    onPressed:
+                        controller.selectedPackages.isEmpty ||
+                            controller.isPreparing.value
                         ? null
                         : controller.sendSelected,
-                    icon: const Icon(Icons.send_rounded),
+                    icon: controller.isPreparing.value
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send_rounded),
                     label: Text(
-                      controller.selectedPackages.isEmpty
+                      controller.isPreparing.value
+                          ? 'Preparing apps…'
+                          : controller.selectedPackages.isEmpty
                           ? 'Select apps to send'
                           : 'Send ${controller.selectedPackages.length} app(s)',
                     ),
@@ -118,8 +127,16 @@ class _AppCard extends StatelessWidget {
                     ? Container(
                         width: 48,
                         height: 48,
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        child: const Icon(Icons.android_rounded),
+                        decoration: BoxDecoration(
+                          color: const Color(
+                            0xFF22B573,
+                          ).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.android_rounded,
+                          color: Color(0xFF22B573),
+                        ),
                       )
                     : Image.memory(
                         app.icon!,
@@ -194,10 +211,14 @@ class _MessageState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 58,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: const Color(0xFF5B6FF9).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: Icon(icon, size: 36, color: const Color(0xFF5B6FF9)),
             ),
             const SizedBox(height: 16),
             Text(title, style: Theme.of(context).textTheme.titleLarge),

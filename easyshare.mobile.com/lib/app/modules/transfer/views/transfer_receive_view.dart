@@ -1,661 +1,503 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../controllers/transfer_receive_controller.dart';
+import 'transfer_ui.dart';
 
 class TransferReceiveView extends GetView<TransferReceiveController> {
   const TransferReceiveView({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      body: Stack(
-        children: [
-          const _BackgroundField(),
-          SafeArea(
-            child: Obx(() {
-              final showSetup =
-                  !controller.isDownloading.value && controller.files.isEmpty;
-
-              if (showSetup) {
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
-                  children: [
-                    _ScreenHeader(
-                      title: 'Receive files',
-                      subtitle:
-                          'Keep this screen open while the sender connects.',
-                    ),
-                    const SizedBox(height: 20),
-                    const _NearbyVisibilityPanel(),
-                    const SizedBox(height: 18),
-                    if (controller.showScanner.value) ...[
-                      _ScannerPanel(cs: cs),
-                      const SizedBox(height: 18),
-                    ] else if (controller.supportsScanner) ...[
-                      const _QrScanButton(),
-                      const SizedBox(height: 18),
-                    ],
-                    _ManualCodePanel(cs: cs),
-                  ],
-                );
-              }
-
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
-                children: [
-                  _ScreenHeader(
-                    title: 'Receiving',
-                    subtitle: 'Progress stays here until all files are saved.',
-                    action: TextButton(
-                      onPressed: controller.resetReceiveFlow,
-                      child: const Text('New transfer'),
-                    ),
+      body: Obx(() {
+        if (controller.pendingOffer.value != null) {
+          return const _IncomingRequestPage();
+        }
+        if (controller.files.isNotEmpty) {
+          final item = controller.currentFile;
+          final fileProgress = item == null || item.size == 0
+              ? (controller.isComplete ? 1.0 : 0.0)
+              : item.received.value / item.size;
+          return TransferProgressPage(
+            title: 'Receiving',
+            peerLabel: 'Sender',
+            peerName: controller.peerName.value,
+            status: controller.statusText.value,
+            fileName: item?.name ?? controller.files.last.name,
+            fileIndex: controller.currentFileIndex,
+            fileCount: controller.files.length,
+            overallProgress: controller.overallProgress.value,
+            fileProgress: fileProgress,
+            speedBytes: controller.transferSpeed.value,
+            transferredBytes: controller.receivedBytes,
+            totalBytes: controller.totalBytes,
+            estimatedTime: controller.estimatedSeconds.value > 0
+                ? Duration(seconds: controller.estimatedSeconds.value)
+                : null,
+            isComplete: controller.isComplete,
+            files: controller.files
+                .map(
+                  (file) => TransferProgressItem(
+                    name: file.name,
+                    size: file.size,
+                    transferred: file.received.value,
+                    progress: file.size == 0
+                        ? (file.status.value == 'complete' ? 1 : 0)
+                        : (file.received.value / file.size).clamp(0, 1),
+                    status: _fileStatusLabel(file.status.value),
                   ),
-                  const SizedBox(height: 20),
-                  _ProgressSummary(cs: cs),
-                  const SizedBox(height: 18),
-                  ...controller.files.map(
-                    (f) => _FileProgressCard(cs: cs, item: f),
-                  ),
-                ],
-              );
-            }),
-          ),
-        ],
-      ),
+                )
+                .toList(growable: false),
+            onCancel: () async {
+              await controller.cancelTransfer();
+              controller.resetReceiveFlow();
+            },
+            onRetry: controller.hasFailed.value
+                ? controller.retryTransfer
+                : null,
+            onOpenFile: controller.openReceivedFile,
+            onOpenFolder: controller.openReceivedFolder,
+          );
+        }
+        return const _WaitingPage();
+      }),
     );
   }
 }
 
-class _NearbyVisibilityPanel extends GetView<TransferReceiveController> {
-  const _NearbyVisibilityPanel();
+String _fileStatusLabel(String status) {
+  return switch (status) {
+    'receiving' => 'Receiving',
+    'complete' => 'Complete',
+    'retrying' => 'Retrying',
+    'failed' => 'Failed',
+    'cancelled' => 'Cancelled',
+    _ => 'Waiting',
+  };
+}
+
+class _WaitingPage extends GetView<TransferReceiveController> {
+  const _WaitingPage();
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: colors.primaryContainer,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.wifi_tethering_rounded,
-                    color: colors.primary,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Nearby devices',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${Platform.localHostname} is ready to receive',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                Obx(
-                  () => IconButton(
-                    onPressed: controller.isSearchingNearby.value
-                        ? null
-                        : controller.discoverNearbySenders,
-                    icon: controller.isSearchingNearby.value
-                        ? const SizedBox.square(
-                            dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.refresh_rounded),
-                    tooltip: 'Search again',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Obx(() {
-              if (controller.nearbySenders.isEmpty) {
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    controller.isSearchingNearby.value
-                        ? 'Searching for nearby senders...'
-                        : 'No sender found yet. Start Send on the other device or scan its QR code.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                );
-              }
-              return Column(
-                children: [
-                  for (final sender in controller.nearbySenders)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        child: Icon(_platformIcon(sender.platform)),
-                      ),
-                      title: Text(sender.name),
-                      subtitle: Text('${sender.platform} • Ready to send'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => controller.receiveFromNearby(sender),
-                    ),
-                ],
-              );
-            }),
-            const SizedBox(height: 8),
-            Obx(
-              () => Text(
-                controller.statusText.value,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-IconData _platformIcon(String platform) {
-  if (platform == 'android') return Icons.android_rounded;
-  if (platform == 'ios') return Icons.phone_iphone_rounded;
-  return Icons.computer_rounded;
-}
-
-class _QrScanButton extends GetView<TransferReceiveController> {
-  const _QrScanButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Connect with QR code',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Use this when the sender does not appear automatically.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: controller.openQrScanner,
-                icon: const Icon(Icons.qr_code_scanner_rounded),
-                label: const Text('Scan QR code'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BackgroundField extends StatelessWidget {
-  const _BackgroundField();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).scaffoldBackgroundColor,
-            cs.primaryContainer.withValues(alpha: 0.35),
-            cs.tertiaryContainer.withValues(alpha: 0.5),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: 64,
-            left: -16,
-            child: Container(
-              width: 110,
-              height: 110,
-              decoration: BoxDecoration(
-                color: cs.secondaryContainer.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(7),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScreenHeader extends StatelessWidget {
-  const _ScreenHeader({
-    required this.title,
-    required this.subtitle,
-    this.action,
-  });
-
-  final String title;
-  final String subtitle;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        IconButton(
-          onPressed: Get.back,
-          icon: const Icon(Icons.arrow_back_rounded),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
+    return SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1040),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Text(subtitle, style: textTheme.bodySmall),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+                child: TransferHeader(
+                  title: 'Receive',
+                  subtitle: 'Keep this screen open while waiting.',
+                  trailing: IconButton.filledTonal(
+                    onPressed: () => _showConnectPanel(context),
+                    tooltip: 'Connect with QR or code',
+                    icon: const Icon(Icons.qr_code_2_rounded),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final radarSize = (constraints.biggest.shortestSide).clamp(
+                      300.0,
+                      720.0,
+                    );
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        RadarView(
+                          dimension: radarSize,
+                          color: const Color(0xFF2196F3),
+                        ),
+                        Obx(
+                          () => Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                20,
+                                20,
+                                28,
+                              ),
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 460,
+                                ),
+                                child: Card(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.surface.withValues(alpha: 0.94),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(18),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 48,
+                                          height: 48,
+                                          decoration: BoxDecoration(
+                                            color: const Color(
+                                              0xFF2196F3,
+                                            ).withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              15,
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.wifi_tethering_rounded,
+                                            color: Color(0xFF2196F3),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Expanded(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Ready to receive',
+                                                style: Theme.of(
+                                                  context,
+                                                ).textTheme.titleLarge,
+                                              ),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                '${controller.localDeviceName} • ${controller.statusText.value}',
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(
+                                                  context,
+                                                ).textTheme.bodySmall,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          onPressed:
+                                              controller.isSearchingNearby.value
+                                              ? null
+                                              : controller
+                                                    .discoverNearbySenders,
+                                          tooltip: 'Search again',
+                                          icon:
+                                              controller.isSearchingNearby.value
+                                              ? const SizedBox.square(
+                                                  dimension: 18,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : const Icon(
+                                                  Icons.refresh_rounded,
+                                                ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         ),
-        if (action != null) ...[const SizedBox(width: 12), action!],
-      ],
+      ),
     );
   }
-}
 
-class _ScannerPanel extends GetView<TransferReceiveController> {
-  const _ScannerPanel({required this.cs});
+  Future<void> _openScanner(BuildContext context) async {
+    await controller.openQrScanner();
+    if (!context.mounted || !controller.showScanner.value) return;
 
-  final ColorScheme cs;
+    if (MediaQuery.sizeOf(context).width >= 700) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => Dialog(
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: _ScannerContent(
+              onClose: () {
+                controller.closeQrScanner();
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+          ),
+        ),
+      );
+    } else {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        enableDrag: false,
+        isDismissible: false,
+        builder: (sheetContext) => SafeArea(
+          child: FractionallySizedBox(
+            heightFactor: 0.82,
+            child: _ScannerContent(
+              onClose: () {
+                controller.closeQrScanner();
+                Navigator.of(sheetContext).pop();
+              },
+            ),
+          ),
+        ),
+      );
+    }
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: cs.outlineVariant),
+  Future<void> _showConnectPanel(BuildContext context) async {
+    Widget content(BuildContext panelContext) => Padding(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        20,
+        24,
+        MediaQuery.viewInsetsOf(panelContext).bottom + 24,
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Expanded(
-                child: Text('Scan the sender QR', style: textTheme.titleLarge),
+                child: Text(
+                  'Connect to sender',
+                  style: Theme.of(panelContext).textTheme.titleLarge,
+                ),
               ),
               IconButton(
-                onPressed: controller.closeQrScanner,
+                onPressed: Navigator.of(panelContext).pop,
                 icon: const Icon(Icons.close_rounded),
-                tooltip: 'Close scanner',
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Point the camera at the code shown on the sending device.',
-            style: textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-          ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           SizedBox(
-            height: 340,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(7),
-              child: Stack(
-                children: [
-                  MobileScanner(
-                    onDetect: (capture) {
-                      final barcodes = capture.barcodes;
-                      if (barcodes.isEmpty) return;
-                      final value = barcodes.first.rawValue;
-                      if (value == null || value.isEmpty) return;
-                      controller.startFromQr(value);
-                    },
-                  ),
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: cs.surface.withValues(alpha: 0.18),
-                          width: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _ScannerFramePainter(color: cs.secondary),
-                    ),
-                  ),
-                ],
-              ),
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: controller.supportsScanner
+                  ? () {
+                      Navigator.of(panelContext).pop();
+                      Future<void>.delayed(Duration.zero, () {
+                        if (context.mounted) _openScanner(context);
+                      });
+                    }
+                  : null,
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: const Text('Scan sender QR'),
             ),
           ),
-          const SizedBox(height: 14),
-          Text(
-            controller.statusText.value,
-            style: textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ManualCodePanel extends GetView<TransferReceiveController> {
-  const _ManualCodePanel({required this.cs});
-
-  final ColorScheme cs;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            controller.supportsScanner
-                ? 'Prefer typing it?'
-                : 'Enter transfer code',
-            style: textTheme.titleLarge,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Paste the sender code here. Expected format: 192.168.x.x:port#token',
-            style: textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Expanded(child: Divider()),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  'or enter a transfer code',
+                  style: Theme.of(panelContext).textTheme.bodySmall,
+                ),
+              ),
+              const Expanded(child: Divider()),
+            ],
           ),
           const SizedBox(height: 16),
           TextField(
             controller: controller.manualCodeController,
-            minLines: 2,
-            maxLines: 4,
             decoration: const InputDecoration(
-              hintText: '192.168.x.x:port#token',
+              hintText: '192.168.x.x:port#code',
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: controller.isDownloading.value
-                  ? null
-                  : controller.startFromManualCode,
-              icon: const Icon(Icons.download_rounded),
-              label: const Text('Receive with code'),
+            child: FilledButton(
+              onPressed: () {
+                Navigator.of(panelContext).pop();
+                controller.startFromManualCode();
+              },
+              child: const Text('Connect'),
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(controller.statusText.value, style: textTheme.bodySmall),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProgressSummary extends GetView<TransferReceiveController> {
-  const _ProgressSummary({required this.cs});
-
-  final ColorScheme cs;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cs.primary,
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            controller.statusText.value,
-            style: textTheme.titleLarge?.copyWith(color: cs.onPrimary),
-          ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: controller.overallProgress.value > 0
-                  ? controller.overallProgress.value
-                  : null,
-              minHeight: 10,
-              backgroundColor: cs.onPrimary.withValues(alpha: 0.18),
-              valueColor: AlwaysStoppedAnimation<Color>(cs.secondaryContainer),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Saving to ${controller.saveLocationLabel}',
-            style: textTheme.bodyMedium?.copyWith(
-              color: cs.onPrimary.withValues(alpha: 0.86),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 16,
-            runSpacing: 6,
-            children: [
-              Text(
-                '${(controller.overallProgress.value * 100).toStringAsFixed(0)}%',
-                style: textTheme.bodySmall?.copyWith(color: cs.onPrimary),
-              ),
-              Text(
-                '${_formatBytes(controller.receivedBytes)} / ${_formatBytes(controller.totalBytes)}',
-                style: textTheme.bodySmall?.copyWith(color: cs.onPrimary),
-              ),
-              Text(
-                '${(controller.transferSpeed.value / (1024 * 1024)).toStringAsFixed(2)} MB/s',
-                style: textTheme.bodySmall?.copyWith(color: cs.onPrimary),
-              ),
-              Text(
-                controller.estimatedSeconds.value > 0
-                    ? '${_formatSeconds(controller.estimatedSeconds.value)} remaining'
-                    : '${_formatBytes(controller.remainingBytes)} remaining',
-                style: textTheme.bodySmall?.copyWith(color: cs.onPrimary),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              if (controller.isDownloading.value)
-                FilledButton.tonalIcon(
-                  onPressed: controller.isPaused.value
-                      ? controller.resumeTransfer
-                      : controller.pauseTransfer,
-                  icon: Icon(
-                    controller.isPaused.value
-                        ? Icons.play_arrow_rounded
-                        : Icons.pause_rounded,
-                  ),
-                  label: Text(controller.isPaused.value ? 'Resume' : 'Pause'),
-                ),
-              if (controller.isDownloading.value)
-                OutlinedButton.icon(
-                  onPressed: controller.cancelTransfer,
-                  icon: const Icon(Icons.close_rounded),
-                  label: const Text('Cancel'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: cs.onPrimary,
-                  ),
-                ),
-              if (controller.hasFailed.value)
-                FilledButton.tonalIcon(
-                  onPressed: controller.retryTransfer,
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('Retry'),
-                ),
-            ],
           ),
         ],
       ),
     );
-  }
-}
 
-class _FileProgressCard extends StatelessWidget {
-  const _FileProgressCard({required this.cs, required this.item});
-
-  final ColorScheme cs;
-  final ReceiveFileItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cs.surface.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            item.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+    if (MediaQuery.sizeOf(context).width >= 700) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: content(dialogContext),
           ),
-          const SizedBox(height: 6),
-          Text(_formatBytes(item.size), style: textTheme.bodySmall),
-          const SizedBox(height: 3),
-          Obx(
-            () => Text(
-              item.status.value,
-              style: textTheme.bodySmall?.copyWith(
-                color: item.status.value == 'failed' ? cs.error : null,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Obx(() {
-            final progress = item.size == 0
-                ? 0.0
-                : item.received.value / item.size;
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 8,
-                backgroundColor: cs.surfaceContainerHighest.withValues(
-                  alpha: 0.6,
-                ),
-                valueColor: AlwaysStoppedAnimation<Color>(cs.secondary),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  String _formatBytes(int bytes) {
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    var size = bytes.toDouble();
-    var unitIndex = 0;
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex += 1;
+        ),
+      );
+      return;
     }
-    final value = unitIndex == 0
-        ? size.toStringAsFixed(0)
-        : size.toStringAsFixed(1);
-    return '$value ${units[unitIndex]}';
-  }
-}
-
-String _formatBytes(int bytes) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  var size = bytes.toDouble();
-  var unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex++;
-  }
-  return '${unitIndex == 0 ? size.toStringAsFixed(0) : size.toStringAsFixed(1)} ${units[unitIndex]}';
-}
-
-String _formatSeconds(int totalSeconds) {
-  final minutes = totalSeconds ~/ 60;
-  final seconds = totalSeconds % 60;
-  return minutes > 0 ? '${minutes}m ${seconds}s' : '${seconds}s';
-}
-
-class _ScannerFramePainter extends CustomPainter {
-  _ScannerFramePainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final framePaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4;
-
-    final rect = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: size.width * 0.64,
-      height: size.width * 0.64,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(7)),
-      framePaint,
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: content,
     );
   }
+}
+
+class _ScannerContent extends StatefulWidget {
+  const _ScannerContent({required this.onClose});
+
+  final VoidCallback onClose;
 
   @override
-  bool shouldRepaint(covariant _ScannerFramePainter oldDelegate) {
-    return oldDelegate.color != color;
+  State<_ScannerContent> createState() => _ScannerContentState();
+}
+
+class _ScannerContentState extends State<_ScannerContent> {
+  final TransferReceiveController controller =
+      Get.find<TransferReceiveController>();
+  bool _handled = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.qr_code_scanner_rounded),
+          title: const Text('Scan the sender QR code'),
+          subtitle: const Text('Point the camera at the transfer QR code.'),
+          trailing: IconButton(
+            onPressed: widget.onClose,
+            tooltip: 'Close scanner',
+            icon: const Icon(Icons.close_rounded),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: MobileScanner(
+            onDetect: (capture) {
+              if (_handled) return;
+              final value = capture.barcodes.firstOrNull?.rawValue;
+              if (value == null || value.isEmpty) return;
+              _handled = true;
+              widget.onClose();
+              controller.startFromQr(value, senderName: 'QR sender');
+            },
+            errorBuilder: (context, error) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.no_photography_rounded, size: 48),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Camera could not start',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      error.errorDetails?.message ??
+                          'Check camera permission and try again.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IncomingRequestPage extends GetView<TransferReceiveController> {
+  const _IncomingRequestPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final offer = controller.pendingOffer.value!;
+    return SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF22B573).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Icon(
+                    Icons.download_rounded,
+                    size: 38,
+                    color: Color(0xFF22B573),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  '${offer.senderName} wants to send files',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '${offer.fileCount} file(s) • ${formatBytes(offer.totalBytes)}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  offer.fileCount > 1
+                      ? '${offer.fileName} and ${offer.fileCount - 1} more'
+                      : offer.fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 32),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: controller.declineOffer,
+                        child: const Text('Decline'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: controller.acceptOffer,
+                        child: const Text('Accept'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

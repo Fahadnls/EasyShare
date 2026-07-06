@@ -13,6 +13,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../data/model/transfer_history_item.dart';
 import '../../../data/service/app_storage_service.dart';
+import '../../../data/service/chunked_transfer_service.dart';
 import '../../../data/service/device_discovery_service.dart';
 import '../../../data/service/download_service.dart';
 import '../../../data/service/platform_file_service.dart';
@@ -66,8 +67,10 @@ class TransferReceiveController extends GetxController {
   final nearbySenders = <NearbySender>[].obs;
   final isSearchingNearby = false.obs;
   final overallProgress = 0.0.obs;
+  final pendingOffer = Rxn<IncomingTransferOffer>();
+  final peerName = 'Nearby sender'.obs;
 
-  final DeviceDiscoveryService _discovery = DeviceDiscoveryService();
+  late final DeviceDiscoveryService _discovery;
   HttpClient? _client;
   StreamSubscription<List<int>>? _activeSubscription;
   Completer<void>? _activeCompleter;
@@ -80,10 +83,26 @@ class TransferReceiveController extends GetxController {
   int _totalReceived = 0;
   int _lastReceived = 0;
   int _generation = 0;
+  Completer<bool>? _offerDecision;
 
   int get totalBytes => _totalBytes;
+  String get localDeviceName => storage.deviceName.value;
   int get receivedBytes => _totalReceived;
   int get remainingBytes => max(0, _totalBytes - _totalReceived);
+  bool get isComplete =>
+      files.isNotEmpty &&
+      files.every((file) => file.status.value == 'complete');
+  ReceiveFileItem? get currentFile {
+    return files.firstWhereOrNull((file) => file.status.value == 'receiving') ??
+        files.firstWhereOrNull((file) => file.status.value != 'complete');
+  }
+
+  int get currentFileIndex {
+    final item = currentFile;
+    if (item == null) return isComplete ? files.length : 0;
+    return files.indexOf(item) + 1;
+  }
+
   String get saveLocationLabel => storage.defaultSaveLocation.value.isEmpty
       ? (Platform.isIOS ? 'App Documents' : 'Downloads')
       : storage.defaultSaveLocation.value;
@@ -91,19 +110,14 @@ class TransferReceiveController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _discovery = DeviceDiscoveryService(deviceName: localDeviceName);
     resetReceiveFlow(clearCode: false);
     unawaited(_prepareScannerPermission());
     unawaited(
-      _discovery
-          .startReceiver(
-            onOffer: (offer) {
-              if (!isDownloading.value) unawaited(startFromQr(offer));
-            },
-          )
-          .catchError((_) {
-            statusText.value =
-                'Nearby discovery unavailable. QR and transfer code still work.';
-          }),
+      _discovery.startReceiver(onOffer: _handleIncomingOffer).catchError((_) {
+        statusText.value =
+            'Nearby discovery unavailable. QR and transfer code still work.';
+      }),
     );
     unawaited(discoverNearbySenders());
   }
@@ -119,10 +133,48 @@ class TransferReceiveController extends GetxController {
   }
 
   Future<void> receiveFromNearby(NearbySender sender) {
-    return startFromQr(sender.url);
+    return startFromQr(sender.url, senderName: sender.name);
   }
 
-  Future<void> startFromQr(String data) async {
+  Future<bool> _handleIncomingOffer(IncomingTransferOffer offer) {
+    if (isDownloading.value ||
+        files.isNotEmpty ||
+        pendingOffer.value != null ||
+        _offerDecision != null) {
+      return Future.value(false);
+    }
+    pendingOffer.value = offer;
+    peerName.value = offer.senderName;
+    statusText.value = '${offer.senderName} wants to send files.';
+    _offerDecision = Completer<bool>();
+    developer.log(
+      'Transfer request received from ${offer.senderName}',
+      name: 'nextshare.transfer',
+    );
+    return _offerDecision!.future;
+  }
+
+  Future<void> acceptOffer() async {
+    final offer = pendingOffer.value;
+    final decision = _offerDecision;
+    if (offer == null || decision == null || decision.isCompleted) return;
+    pendingOffer.value = null;
+    _offerDecision = null;
+    decision.complete(true);
+    developer.log('Transfer accepted', name: 'nextshare.transfer');
+    await startFromQr(offer.url, senderName: offer.senderName);
+  }
+
+  void declineOffer() {
+    final decision = _offerDecision;
+    pendingOffer.value = null;
+    _offerDecision = null;
+    if (decision != null && !decision.isCompleted) decision.complete(false);
+    statusText.value = 'Ready to receive';
+    developer.log('Transfer declined', name: 'nextshare.transfer');
+  }
+
+  Future<void> startFromQr(String data, {String? senderName}) async {
     if (isDownloading.value) return;
     final uri = _parseTransferInput(data);
     if (uri == null) {
@@ -139,6 +191,7 @@ class TransferReceiveController extends GetxController {
     final generation = ++_generation;
     _lastUri = uri;
     _lastToken = token;
+    peerName.value = senderName ?? 'Nearby sender';
     isScanning.value = false;
     showScanner.value = false;
     isDownloading.value = true;
@@ -150,6 +203,10 @@ class TransferReceiveController extends GetxController {
     try {
       final metaUri = uri.path == '/meta' ? uri : uri.replace(path: '/meta');
       final meta = await _fetchMeta(metaUri);
+      final senderDeviceName = meta['senderName'] as String?;
+      if (senderDeviceName != null && senderDeviceName.trim().isNotEmpty) {
+        peerName.value = senderDeviceName.trim();
+      }
       _transferId = meta['transferId'] as String? ?? token;
       final rawFiles = meta['files'];
       if (rawFiles is! List || rawFiles.isEmpty) {
@@ -216,8 +273,48 @@ class TransferReceiveController extends GetxController {
     for (final item in files) {
       if (generation != _generation) throw const TransferCancelled();
       if (item.status.value == 'complete') continue;
-      await _downloadFile(uri, token, item, generation);
+      await _downloadFileWithRetry(uri, token, item, generation);
     }
+  }
+
+  Future<void> _downloadFileWithRetry(
+    Uri uri,
+    String token,
+    ReceiveFileItem item,
+    int generation,
+  ) async {
+    Object? lastError;
+    StackTrace? lastStack;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await _downloadFile(uri, token, item, generation);
+        return;
+      } catch (error, stack) {
+        if (error is TransferCancelled || generation != _generation) rethrow;
+        lastError = error;
+        lastStack = stack;
+        item.status.value = 'retrying';
+        statusText.value = 'Connection interrupted. Retrying ($attempt/3)…';
+        developer.log(
+          'Transfer retry $attempt for ${item.name}',
+          name: 'nextshare.transfer',
+          error: error,
+        );
+        await _activeSubscription?.cancel();
+        _activeSubscription = null;
+        _activeCompleter = null;
+        try {
+          await _activeSink?.close();
+        } catch (_) {}
+        _activeSink = null;
+        _client?.close(force: true);
+        _client = null;
+        if (attempt < 3) {
+          await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
+        }
+      }
+    }
+    Error.throwWithStackTrace(lastError!, lastStack!);
   }
 
   Future<void> startFromManualCode() async {
@@ -346,6 +443,7 @@ class TransferReceiveController extends GetxController {
 
   void resetReceiveFlow({bool clearCode = true}) {
     unawaited(cancelTransfer());
+    declineOffer();
     if (clearCode) manualCodeController.clear();
     files.clear();
     overallProgress.value = 0;
@@ -363,8 +461,24 @@ class TransferReceiveController extends GetxController {
     isScanning.value = supportsScanner;
     showScanner.value = false;
     statusText.value = supportsScanner
-        ? 'This device is visible to nearby senders on the same Wi-Fi.'
+        ? 'Waiting for sender nearby…'
         : 'Paste the transfer code from the sender';
+  }
+
+  Future<void> openReceivedFile() async {
+    final path = files
+        .firstWhereOrNull((file) => file.savedPath?.isNotEmpty == true)
+        ?.savedPath;
+    if (path != null) await PlatformFileService.openPath(path);
+  }
+
+  Future<void> openReceivedFolder() async {
+    final path = files
+        .firstWhereOrNull((file) => file.savedPath?.isNotEmpty == true)
+        ?.savedPath;
+    if (path != null) {
+      await PlatformFileService.openPath(File(path).parent.path);
+    }
   }
 
   Future<void> _prepareScannerPermission() async {
@@ -425,6 +539,7 @@ class TransferReceiveController extends GetxController {
     _client ??= HttpClient();
     _client!.connectionTimeout = const Duration(seconds: 12);
     final request = await _client!.getUrl(uri);
+    request.headers.set('X-NextShare-Device', localDeviceName);
     final response = await request.close();
     if (response.statusCode != HttpStatus.ok) {
       throw StateError('Meta request failed');
@@ -478,35 +593,35 @@ class TransferReceiveController extends GetxController {
       mode: offset > 0 ? FileMode.append : FileMode.write,
     );
     _activeSink = sink;
-    final completer = Completer<void>();
-    _activeCompleter = completer;
-    _activeSubscription = response.listen(
-      (chunk) {
-        if (generation != _generation) return;
-        sink.add(chunk);
-        item.received.value += chunk.length;
-        _totalReceived += chunk.length;
-        overallProgress.value = _totalBytes == 0
-            ? 0
-            : (_totalReceived / _totalBytes).clamp(0, 1);
-      },
-      onError: (Object error, StackTrace stack) async {
+    try {
+      await ChunkedTransferService.receiveFile(
+        source: response,
+        sink: sink,
+        isCancelled: () => generation != _generation,
+        onChunk: (chunkBytes) {
+          item.received.value += chunkBytes;
+          _totalReceived += chunkBytes;
+          overallProgress.value = _totalBytes == 0
+              ? 0
+              : (_totalReceived / _totalBytes).clamp(0, 1);
+        },
+      );
+      await sink.close();
+      _activeSink = null;
+    } on ChunkedTransferCancelled {
+      try {
         await sink.close();
-        _activeSink = null;
-        item.status.value = 'failed';
-        if (!completer.isCompleted) completer.completeError(error, stack);
-      },
-      onDone: () async {
-        await sink.flush();
+      } catch (_) {}
+      _activeSink = null;
+      throw const TransferCancelled();
+    } catch (_) {
+      item.status.value = 'failed';
+      try {
         await sink.close();
-        _activeSink = null;
-        if (!completer.isCompleted) completer.complete();
-      },
-      cancelOnError: true,
-    );
-    await completer.future;
-    _activeSubscription = null;
-    _activeCompleter = null;
+      } catch (_) {}
+      _activeSink = null;
+      rethrow;
+    }
     if (generation != _generation) throw const TransferCancelled();
     if (await tempFile.length() != item.size) {
       item.status.value = 'failed';
@@ -732,6 +847,8 @@ class TransferReceiveController extends GetxController {
   @override
   void onClose() {
     _generation++;
+    final decision = _offerDecision;
+    if (decision != null && !decision.isCompleted) decision.complete(false);
     manualCodeController.dispose();
     _speedTimer?.cancel();
     _activeSubscription?.cancel();

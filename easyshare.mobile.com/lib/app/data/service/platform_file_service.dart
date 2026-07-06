@@ -63,6 +63,22 @@ class PlatformFileService {
         .toList(growable: false);
   }
 
+  static Future<List<SharedAppInfo>> prepareApps(
+    Iterable<String> packageNames,
+  ) async {
+    if (!Platform.isAndroid) return const [];
+    final result = await _channel.invokeMethod<List<dynamic>>('prepareApps', {
+      'packages': packageNames.toList(growable: false),
+    });
+    return (result ?? const [])
+        .whereType<Map>()
+        .map(SharedAppInfo.fromMap)
+        .where(
+          (app) => app.apkPath.isNotEmpty && File(app.apkPath).existsSync(),
+        )
+        .toList(growable: false);
+  }
+
   static Future<List<PickedFolderFile>?> pickAndroidFolder() async {
     if (!Platform.isAndroid) return null;
     final result = await _channel.invokeMethod<List<dynamic>>('pickFolder');

@@ -5,12 +5,14 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../data/model/transfer_history_item.dart';
 import '../../../data/service/app_storage_service.dart';
+import '../../../data/service/chunked_transfer_service.dart';
 import '../../../data/service/desktop_drop_service.dart';
 import '../../../data/service/device_discovery_service.dart';
 import '../../../data/service/platform_file_service.dart';
@@ -47,23 +49,33 @@ class TransferSendController extends GetxController {
   final hasTransferStarted = false.obs;
   final sentBytes = 0.obs;
   final transferSpeed = 0.0.obs;
+  final currentFileId = ''.obs;
+  final currentFileBytes = 0.obs;
+  final selectedCategory = 'files'.obs;
+  final isPreparingFiles = false.obs;
+  final preparationText = 'Preparing files…'.obs;
 
   final files = <SendFileItem>[].obs;
   final nearbyDevices = <NearbyDevice>[].obs;
   final selectedDevice = Rxn<NearbyDevice>();
+  final qrReceiverName = ''.obs;
 
-  final DeviceDiscoveryService _discovery = DeviceDiscoveryService();
   final AppStorageService _storage = Get.find<AppStorageService>();
+  late final DeviceDiscoveryService _discovery;
   final Set<String> _completedIds = {};
+  final Set<String> _activeFileRequests = {};
+  final Map<String, int> _sentByFile = {};
 
   HttpServer? _server;
   String _token = '';
   StreamSubscription<List<String>>? _dropSubscription;
   Timer? _speedTimer;
+  Timer? _discoveryTimer;
   int _lastSentBytes = 0;
   String? _initialAction;
 
   int get totalBytes => files.fold(0, (sum, file) => sum + file.size);
+  String get localDeviceName => _storage.deviceName.value;
   int get remainingBytes => max(0, totalBytes - sentBytes.value);
   double get progress =>
       totalBytes == 0 ? 0 : (sentBytes.value / totalBytes).clamp(0, 1);
@@ -72,9 +84,42 @@ class TransferSendController extends GetxController {
     return Duration(seconds: (remainingBytes / transferSpeed.value).ceil());
   }
 
+  bool get isComplete =>
+      files.isNotEmpty && _completedIds.length == files.length;
+  int get currentFileIndex {
+    final index = files.indexWhere((file) => file.id == currentFileId.value);
+    return index < 0 ? 0 : index + 1;
+  }
+
+  SendFileItem? get currentFile =>
+      files.firstWhereOrNull((file) => file.id == currentFileId.value);
+  double get currentFileProgress {
+    final file = currentFile;
+    if (file == null || file.size == 0) return 0;
+    return (currentFileBytes.value / file.size).clamp(0, 1);
+  }
+
+  int sentBytesFor(SendFileItem file) =>
+      (_sentByFile[file.id] ?? 0).clamp(0, file.size);
+
+  double progressFor(SendFileItem file) {
+    if (file.size == 0) return _completedIds.contains(file.id) ? 1 : 0;
+    return (sentBytesFor(file) / file.size).clamp(0, 1);
+  }
+
+  String statusFor(SendFileItem file) {
+    if (_completedIds.contains(file.id)) return 'Complete';
+    if (_activeFileRequests.contains(file.id)) return 'Sending';
+    if (connectionStatus.value == 'failed' && currentFileId.value == file.id) {
+      return 'Failed';
+    }
+    return 'Waiting';
+  }
+
   @override
   void onInit() {
     super.onInit();
+    _discovery = DeviceDiscoveryService(deviceName: localDeviceName);
     _readArgs();
     _listenForDesktopDrops();
     if (files.isEmpty) {
@@ -106,7 +151,7 @@ class TransferSendController extends GetxController {
         unawaited(pickFolder());
         return;
       case 'apps':
-        openApps();
+        unawaited(openApps());
         return;
     }
   }
@@ -174,6 +219,10 @@ class TransferSendController extends GetxController {
       byPath.putIfAbsent(p.normalize(item.path), () => item);
     }
     files.assignAll(byPath.values);
+    developer.log(
+      'Selected files: ${files.length}, $totalBytes bytes',
+      name: 'nextshare.transfer',
+    );
   }
 
   void _listenForDesktopDrops() {
@@ -184,20 +233,25 @@ class TransferSendController extends GetxController {
   }
 
   Future<void> pickFiles() async {
-    await _pickTypedFiles();
+    selectedCategory.value = 'files';
+    await _pickTypedFiles(category: 'files');
   }
 
   Future<void> pickPhotos() async {
-    await _pickTypedFiles(type: FileType.image);
+    selectedCategory.value = 'photos';
+    await _pickTypedFiles(type: FileType.image, category: 'photos');
   }
 
   Future<void> pickVideos() async {
-    await _pickTypedFiles(type: FileType.video);
+    selectedCategory.value = 'videos';
+    await _pickTypedFiles(type: FileType.video, category: 'videos');
   }
 
   Future<void> pickDocuments() async {
+    selectedCategory.value = 'documents';
     await _pickTypedFiles(
       type: FileType.custom,
+      category: 'documents',
       allowedExtensions: const [
         'pdf',
         'doc',
@@ -209,24 +263,37 @@ class TransferSendController extends GetxController {
         'txt',
         'rtf',
         'csv',
-        'zip',
-        'rar',
-        '7z',
-        'apk',
+        'odt',
+        'ods',
+        'odp',
       ],
     );
   }
 
-  void openApps() {
+  Future<void> openApps() async {
     if (!Platform.isAndroid) {
       statusText.value = 'Installed app sharing is only available on Android.';
+      Get.snackbar(
+        'App sharing unavailable',
+        'iOS does not allow installed apps to be shared.',
+      );
       return;
     }
-    Get.toNamed(Routes.SEND_APPS);
+    final result = await Get.toNamed(Routes.SEND_APPS);
+    if (result is! List<SharedAppInfo> || result.isEmpty) return;
+    selectedCategory.value = 'apps';
+    final appFiles = result.map((app) {
+      final safeName = app.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+      final name = '${safeName.isEmpty ? app.packageName : safeName}.apk';
+      return _itemFor(app.apkPath, name, name, app.size);
+    });
+    _assignUnique(appFiles);
+    await startServer();
   }
 
   Future<void> _pickTypedFiles({
     FileType type = FileType.any,
+    required String category,
     List<String>? allowedExtensions,
   }) async {
     try {
@@ -237,12 +304,24 @@ class TransferSendController extends GetxController {
         allowedExtensions: allowedExtensions,
       );
       if (result == null || result.files.isEmpty) return;
-      final valid = result.files.where((file) => file.path != null).toList();
+      final accessible = result.files
+          .where((file) => file.path != null)
+          .toList();
+      final valid = accessible
+          .where((file) => _matchesCategory(file.name, category))
+          .toList();
       if (valid.isEmpty) {
-        statusText.value = 'Selected files are not accessible';
+        statusText.value = accessible.isEmpty
+            ? 'Selected files are not accessible.'
+            : 'No $category matched this selection.';
         return;
       }
+      final rejectedCount = accessible.length - valid.length;
       _loadPlatformFiles(valid);
+      if (rejectedCount > 0) {
+        statusText.value =
+            '$rejectedCount item(s) were skipped because they are not $category.';
+      }
       await startServer();
     } catch (error, stack) {
       developer.log(
@@ -257,8 +336,12 @@ class TransferSendController extends GetxController {
 
   Future<void> pickFolder() async {
     try {
+      selectedCategory.value = 'folder';
       if (Platform.isAndroid) {
-        statusText.value = 'Opening Android folder picker...';
+        isPreparingFiles.value = true;
+        preparationText.value = 'Reading folder contents…';
+        statusText.value =
+            'Choose a folder. Large folders may take a moment to prepare.';
         final selected = await PlatformFileService.pickAndroidFolder();
         if (selected == null) {
           statusText.value = files.isEmpty
@@ -294,10 +377,88 @@ class TransferSendController extends GetxController {
         error: error,
         stackTrace: stack,
       );
-      statusText.value = Platform.isIOS
-          ? 'Folder sharing is limited by the iOS Files provider.'
-          : 'The selected folder could not be opened.';
+      if (Platform.isIOS) {
+        statusText.value =
+            'Folder sharing is limited by the iOS Files provider.';
+      } else if (error is PlatformException && error.message != null) {
+        statusText.value = error.message!;
+      } else {
+        statusText.value =
+            'The selected folder could not be opened. Choose another folder.';
+      }
+    } finally {
+      isPreparingFiles.value = false;
     }
+  }
+
+  Future<void> pickMore() async {
+    switch (selectedCategory.value) {
+      case 'photos':
+        await pickPhotos();
+      case 'videos':
+        await pickVideos();
+      case 'documents':
+        await pickDocuments();
+      case 'folder':
+        await pickFolder();
+      case 'apps':
+        await openApps();
+      default:
+        await pickFiles();
+    }
+  }
+
+  bool _matchesCategory(String name, String category) {
+    if (category == 'files') return true;
+    final extension = p.extension(name).replaceFirst('.', '').toLowerCase();
+    const photoExtensions = {
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'webp',
+      'bmp',
+      'heic',
+      'heif',
+      'avif',
+      'tif',
+      'tiff',
+    };
+    const videoExtensions = {
+      'mp4',
+      'm4v',
+      'mov',
+      'mkv',
+      'avi',
+      'webm',
+      '3gp',
+      '3g2',
+      'mpeg',
+      'mpg',
+      'ts',
+      'm2ts',
+    };
+    const documentExtensions = {
+      'pdf',
+      'doc',
+      'docx',
+      'xls',
+      'xlsx',
+      'ppt',
+      'pptx',
+      'txt',
+      'rtf',
+      'csv',
+      'odt',
+      'ods',
+      'odp',
+    };
+    return switch (category) {
+      'photos' => photoExtensions.contains(extension),
+      'videos' => videoExtensions.contains(extension),
+      'documents' => documentExtensions.contains(extension),
+      _ => true,
+    };
   }
 
   Future<void> addFolder(String directoryPath) async {
@@ -359,12 +520,33 @@ class TransferSendController extends GetxController {
       if (files.isEmpty) return;
     }
 
+    final shouldShowPreparation =
+        totalBytes >= 50 * 1024 * 1024 ||
+        selectedCategory.value == 'folder' ||
+        selectedCategory.value == 'apps';
+    if (shouldShowPreparation) {
+      isPreparingFiles.value = true;
+      preparationText.value = selectedCategory.value == 'apps'
+          ? 'Preparing app package and QR code…'
+          : selectedCategory.value == 'folder'
+          ? 'Preparing folder and QR code…'
+          : 'Preparing ${files.length} large file(s)…';
+      // Give Flutter one frame to display the preparation state before
+      // network setup and file validation continue.
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+    }
+
     await stopServer(clearStatus: false);
     statusText.value = 'Starting secure local transfer...';
     connectionStatus.value = 'searching';
     hasTransferStarted.value = false;
     sentBytes.value = 0;
+    currentFileId.value = '';
+    currentFileBytes.value = 0;
+    qrReceiverName.value = '';
     _completedIds.clear();
+    _activeFileRequests.clear();
+    _sentByFile.clear();
 
     try {
       _token = _randomToken();
@@ -387,6 +569,13 @@ class TransferSendController extends GetxController {
         name: 'nextshare.transfer',
       );
       unawaited(discoverDevices());
+      _discoveryTimer?.cancel();
+      _discoveryTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+        if (selectedDevice.value == null &&
+            connectionStatus.value == 'searching') {
+          unawaited(discoverDevices());
+        }
+      });
     } catch (error, stack) {
       developer.log(
         'Failed to start transfer server',
@@ -397,6 +586,8 @@ class TransferSendController extends GetxController {
       statusText.value = 'Failed to start transfer server.';
       connectionStatus.value = 'failed';
       await stopServer(clearStatus: false);
+    } finally {
+      if (shouldShowPreparation) isPreparingFiles.value = false;
     }
   }
 
@@ -404,16 +595,28 @@ class TransferSendController extends GetxController {
     if (isDiscovering.value) return;
     isDiscovering.value = true;
     connectionStatus.value = 'searching';
+    developer.log('Discovery started', name: 'nextshare.transfer');
     try {
       nearbyDevices.assignAll(await _discovery.discover());
       if (nearbyDevices.isEmpty) {
         statusText.value =
             'No receivers found. Open Receive nearby or use the QR code.';
+      } else {
+        developer.log(
+          'Discovery found ${nearbyDevices.length} receiver(s)',
+          name: 'nextshare.transfer',
+        );
       }
-    } catch (_) {
+    } catch (error, stack) {
       connectionStatus.value = 'failed';
       statusText.value =
           'Nearby search failed. QR and transfer code still work.';
+      developer.log(
+        'Discovery failed',
+        name: 'nextshare.transfer',
+        error: error,
+        stackTrace: stack,
+      );
     } finally {
       isDiscovering.value = false;
     }
@@ -423,20 +626,48 @@ class TransferSendController extends GetxController {
     if (serverUrl.value.isEmpty) return;
     selectedDevice.value = device;
     connectionStatus.value = 'connecting';
-    statusText.value = 'Connecting to ${device.name}...';
+    statusText.value = 'Waiting for receiver to accept…';
+    developer.log(
+      'Transfer request sent to ${device.name}',
+      name: 'nextshare.transfer',
+    );
     try {
-      final connected = await _discovery.sendOffer(device, serverUrl.value);
-      if (!connected) {
-        connectionStatus.value = 'failed';
-        statusText.value =
-            '${device.name} did not respond. Keep Receive open and retry.';
-        return;
+      final decision = await _discovery.sendOffer(
+        device,
+        serverUrl.value,
+        fileCount: files.length,
+        totalBytes: totalBytes,
+        fileName: files.first.name,
+      );
+      switch (decision) {
+        case OfferDecision.accepted:
+          connectionStatus.value = 'connected';
+          statusText.value = '${device.name} accepted. Starting transfer…';
+          developer.log(
+            'Transfer accepted by ${device.name}',
+            name: 'nextshare.transfer',
+          );
+        case OfferDecision.declined:
+          connectionStatus.value = 'declined';
+          statusText.value = '${device.name} declined the transfer.';
+          developer.log(
+            'Transfer declined by ${device.name}',
+            name: 'nextshare.transfer',
+          );
+        case OfferDecision.timedOut:
+          connectionStatus.value = 'failed';
+          statusText.value =
+              '${device.name} did not respond. Keep Receive open and retry.';
       }
-      connectionStatus.value = 'connected';
-      statusText.value = 'Connected to ${device.name}. Waiting for download...';
-    } catch (_) {
+    } catch (error, stack) {
       connectionStatus.value = 'failed';
       statusText.value = 'Could not connect to ${device.name}.';
+      developer.log(
+        'Transfer request failed',
+        name: 'nextshare.transfer',
+        error: error,
+        stackTrace: stack,
+      );
     }
   }
 
@@ -476,11 +707,16 @@ class TransferSendController extends GetxController {
       }
       request.response.headers.set('Access-Control-Allow-Origin', '*');
       if (request.uri.path == '/meta') {
+        final receiverName = request.headers.value('X-NextShare-Device');
+        if (receiverName != null && receiverName.trim().isNotEmpty) {
+          qrReceiverName.value = receiverName.trim();
+        }
         request.response.headers.contentType = ContentType.json;
         request.response.write(
           jsonEncode({
             'version': 2,
             'transferId': _token,
+            'senderName': localDeviceName,
             'files': files
                 .map(
                   (file) => {
@@ -509,6 +745,11 @@ class TransferSendController extends GetxController {
         await request.response.close();
         return;
       }
+      if (!_activeFileRequests.add(id)) {
+        request.response.statusCode = HttpStatus.conflict;
+        await request.response.close();
+        return;
+      }
 
       var start = 0;
       final range = request.headers.value(HttpHeaders.rangeHeader);
@@ -533,11 +774,24 @@ class TransferSendController extends GetxController {
       }
       statusText.value = 'Sending ${item.name}...';
       hasTransferStarted.value = true;
-      await for (final chunk in File(item.path).openRead(start)) {
-        request.response.add(chunk);
-        sentBytes.value = min(totalBytes, sentBytes.value + chunk.length);
-      }
+      currentFileId.value = item.id;
+      currentFileBytes.value = start;
+      _sentByFile[item.id] = max(_sentByFile[item.id] ?? 0, start);
+      await ChunkedTransferService.sendFile(
+        file: File(item.path),
+        start: start,
+        response: request.response,
+        onProgress: (filePosition) {
+          currentFileBytes.value = filePosition;
+          _sentByFile[item.id] = max(_sentByFile[item.id] ?? 0, filePosition);
+          sentBytes.value = min(
+            totalBytes,
+            _sentByFile.values.fold(0, (sum, bytes) => sum + bytes),
+          );
+        },
+      );
       await request.response.close();
+      _activeFileRequests.remove(id);
       _completedIds.add(item.id);
       await _storage.addHistory(
         TransferHistoryItem(
@@ -562,6 +816,10 @@ class TransferSendController extends GetxController {
         );
       }
     } catch (error, stack) {
+      final id = request.uri.pathSegments.length == 2
+          ? request.uri.pathSegments[1]
+          : null;
+      if (id != null) _activeFileRequests.remove(id);
       developer.log(
         'Transfer request failed',
         name: 'nextshare.transfer',
@@ -577,6 +835,23 @@ class TransferSendController extends GetxController {
     }
   }
 
+  Future<void> cancelTransfer() async {
+    connectionStatus.value = 'cancelled';
+    statusText.value = 'Transfer cancelled';
+    developer.log('Transfer cancelled', name: 'nextshare.transfer');
+    await stopServer(clearStatus: false);
+  }
+
+  Future<void> openTransferredFile() async {
+    if (files.isEmpty) return;
+    await PlatformFileService.openPath(files.first.path);
+  }
+
+  Future<void> openTransferredFolder() async {
+    if (files.isEmpty) return;
+    await PlatformFileService.openPath(File(files.first.path).parent.path);
+  }
+
   void _startSpeedTimer() {
     _speedTimer?.cancel();
     _lastSentBytes = sentBytes.value;
@@ -584,6 +859,12 @@ class TransferSendController extends GetxController {
       final current = sentBytes.value;
       transferSpeed.value = max(0, current - _lastSentBytes).toDouble();
       _lastSentBytes = current;
+      if (current > 0 && current < totalBytes) {
+        developer.log(
+          'Transfer progress: ${(progress * 100).toStringAsFixed(1)}%',
+          name: 'nextshare.transfer',
+        );
+      }
       if (current >= totalBytes) transferSpeed.value = 0;
     });
   }
@@ -595,6 +876,8 @@ class TransferSendController extends GetxController {
     if (clearStatus) statusText.value = '';
     _speedTimer?.cancel();
     _speedTimer = null;
+    _discoveryTimer?.cancel();
+    _discoveryTimer = null;
     await _discovery.stopReceiver();
     if (_server != null) {
       await _server!.close(force: true);

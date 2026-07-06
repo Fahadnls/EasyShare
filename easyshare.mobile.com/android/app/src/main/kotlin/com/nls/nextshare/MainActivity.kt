@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
@@ -21,8 +22,10 @@ import java.io.FileOutputStream
 class MainActivity : FlutterActivity() {
     private val channelName = "nextshare/downloads"
     private val platformChannelName = "nextshare/platform_files"
+    private val networkChannelName = "nextshare/network"
     private val folderPickerRequestCode = 7312
     private var pendingFolderResult: MethodChannel.Result? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -68,6 +71,23 @@ class MainActivity : FlutterActivity() {
                             result.error("APPS", e.message, null)
                         }
                     }
+                    "prepareApps" -> {
+                        val packages = call.argument<List<String>>("packages")
+                        if (packages.isNullOrEmpty()) {
+                            result.error("ARG", "No apps selected", null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            try {
+                                val prepared = prepareApps(packages)
+                                runOnUiThread { result.success(prepared) }
+                            } catch (error: Exception) {
+                                runOnUiThread {
+                                    result.error("APPS", error.message, null)
+                                }
+                            }
+                        }.start()
+                    }
                     "pickFolder" -> {
                         if (pendingFolderResult != null) {
                             result.error("BUSY", "A folder picker is already open", null)
@@ -77,11 +97,21 @@ class MainActivity : FlutterActivity() {
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                             addFlags(
                                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                                     Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
                                     Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
                             )
                         }
-                        startActivityForResult(intent, folderPickerRequestCode)
+                        if (intent.resolveActivity(packageManager) == null) {
+                            pendingFolderResult = null
+                            result.error(
+                                "UNAVAILABLE",
+                                "No Android folder picker is available",
+                                null
+                            )
+                        } else {
+                            startActivityForResult(intent, folderPickerRequestCode)
+                        }
                     }
                     "openPath" -> {
                         val path = call.argument<String>("path")
@@ -90,6 +120,48 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, networkChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "acquireMulticastLock" -> {
+                        try {
+                            acquireMulticastLock()
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("NETWORK", error.message, null)
+                        }
+                    }
+                    "releaseMulticastLock" -> {
+                        releaseMulticastLock()
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock?.isHeld == true) return
+        val wifiManager =
+            applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+        multicastLock = wifiManager.createMulticastLock("nextshare-discovery").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        multicastLock?.let { lock ->
+            if (lock.isHeld) lock.release()
+        }
+        multicastLock = null
+    }
+
+    override fun onDestroy() {
+        releaseMulticastLock()
+        pendingFolderResult?.error("CLOSED", "Folder picker was closed", null)
+        pendingFolderResult = null
+        super.onDestroy()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -144,7 +216,8 @@ class MainActivity : FlutterActivity() {
             documentUri = rootDocumentUri,
             relativePath = safeRootName,
             outputRoot = outputRoot,
-            output = files
+            output = files,
+            forceDirectory = true
         )
         return files
     }
@@ -154,10 +227,11 @@ class MainActivity : FlutterActivity() {
         documentUri: Uri,
         relativePath: String,
         outputRoot: File,
-        output: MutableList<Map<String, Any>>
+        output: MutableList<Map<String, Any>>,
+        forceDirectory: Boolean = false
     ) {
         val mimeType = queryDocumentMimeType(documentUri)
-        if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+        if (forceDirectory || mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
             val documentId = DocumentsContract.getDocumentId(documentUri)
             val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
                 treeUri,
@@ -338,6 +412,30 @@ class MainActivity : FlutterActivity() {
             ).apply {
                 if (iconBytes != null) put("icon", iconBytes)
             }
+        }
+    }
+
+    private fun prepareApps(packageNames: List<String>): List<Map<String, Any>> {
+        val outputDirectory = File(cacheDir, "nextshare_apps")
+        outputDirectory.mkdirs()
+        return packageNames.distinct().map { packageName ->
+            val info = packageManager.getApplicationInfo(packageName, 0)
+            val source = File(info.sourceDir)
+            if (!source.exists()) {
+                throw IllegalStateException("$packageName is no longer installed")
+            }
+            val destination = File(outputDirectory, "$packageName.apk")
+            FileInputStream(source).use { input ->
+                FileOutputStream(destination).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            mapOf(
+                "name" to packageManager.getApplicationLabel(info).toString(),
+                "packageName" to packageName,
+                "apkPath" to destination.absolutePath,
+                "size" to destination.length()
+            )
         }
     }
 
