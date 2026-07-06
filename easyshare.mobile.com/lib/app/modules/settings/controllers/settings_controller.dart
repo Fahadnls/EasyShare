@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../data/service/app_storage_service.dart';
@@ -10,6 +11,15 @@ class SettingsController extends GetxController {
   final AppStorageService storage = Get.find<AppStorageService>();
   final isPicking = false.obs;
   final statusText = ''.obs;
+
+  Future<void> changeThemeMode(String mode) async {
+    await storage.setThemeMode(mode);
+    Get.changeThemeMode(switch (mode) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    });
+  }
 
   Future<void> chooseSaveLocation() async {
     if (isPicking.value) return;

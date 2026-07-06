@@ -12,6 +12,7 @@ class AppStorageService extends GetxService {
   final history = <TransferHistoryItem>[].obs;
   final defaultSaveLocation = ''.obs;
   final deviceName = _randomDeviceName().obs;
+  final themeModeName = 'system'.obs;
 
   late final File _dataFile;
 
@@ -31,6 +32,11 @@ class AppStorageService extends GetxService {
           jsonDecode(await _dataFile.readAsString()) as Map<String, dynamic>;
       defaultSaveLocation.value = data['defaultSaveLocation'] as String? ?? '';
       deviceName.value = data['deviceName'] as String? ?? deviceName.value;
+      final storedTheme = data['themeMode'] as String? ?? 'system';
+      themeModeName.value =
+          const {'system', 'light', 'dark'}.contains(storedTheme)
+          ? storedTheme
+          : 'system';
       final storedHistory = data['history'] as List? ?? const [];
       history.assignAll(
         storedHistory.whereType<Map>().map(
@@ -50,6 +56,12 @@ class AppStorageService extends GetxService {
 
   Future<void> clearDefaultSaveLocation() async {
     defaultSaveLocation.value = '';
+    await _save();
+  }
+
+  Future<void> setThemeMode(String mode) async {
+    if (!const {'system', 'light', 'dark'}.contains(mode)) return;
+    themeModeName.value = mode;
     await _save();
   }
 
@@ -76,6 +88,7 @@ class AppStorageService extends GetxService {
     final payload = jsonEncode({
       'defaultSaveLocation': defaultSaveLocation.value,
       'deviceName': deviceName.value,
+      'themeMode': themeModeName.value,
       'history': history.map((item) => item.toJson()).toList(),
     });
     final temp = File('${_dataFile.path}.tmp');

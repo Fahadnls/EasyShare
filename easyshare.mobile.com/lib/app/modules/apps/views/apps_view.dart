@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../core/constants/ui_constants.dart';
 import '../../../data/service/platform_file_service.dart';
 import '../controllers/apps_controller.dart';
 
@@ -116,13 +117,13 @@ class _AppCard extends StatelessWidget {
     return Card(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(kBorderRadius),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(kBorderRadius),
                 child: app.icon == null
                     ? Container(
                         width: 48,
@@ -131,7 +132,7 @@ class _AppCard extends StatelessWidget {
                           color: const Color(
                             0xFF22B573,
                           ).withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(kBorderRadius),
                         ),
                         child: const Icon(
                           Icons.android_rounded,
@@ -216,7 +217,7 @@ class _MessageState extends StatelessWidget {
               height: 72,
               decoration: BoxDecoration(
                 color: const Color(0xFF5B6FF9).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(kBorderRadius + 6),
               ),
               child: Icon(icon, size: 36, color: const Color(0xFF5B6FF9)),
             ),

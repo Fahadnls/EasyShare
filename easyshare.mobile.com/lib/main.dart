@@ -16,6 +16,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final storedTheme = Get.find<AppStorageService>().themeModeName.value;
     return GetMaterialApp(
       debugShowCheckedModeBanner: false,
 
@@ -25,6 +26,12 @@ class MyApp extends StatelessWidget {
       getPages: AppPages.routes,
 
       theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: switch (storedTheme) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      },
     );
   }
 }

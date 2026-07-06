@@ -53,6 +53,21 @@ class PlatformFileService {
     'nextshare/platform_files',
   );
 
+  static Future<Uint8List?> fileThumbnail(
+    String path, {
+    int maxSize = 160,
+  }) async {
+    if (path.isEmpty) return null;
+    try {
+      return await _channel.invokeMethod<Uint8List>('fileThumbnail', {
+        'path': path,
+        'maxSize': maxSize,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<List<SharedAppInfo>> installedApps() async {
     if (!Platform.isAndroid) return const [];
     final result = await _channel.invokeMethod<List<dynamic>>('installedApps');

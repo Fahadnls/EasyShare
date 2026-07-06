@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../../core/constants/ui_constants.dart';
 import '../../../data/service/device_discovery_service.dart';
 import '../../../data/service/qr_transfer_service.dart';
+import '../../../widgets/app_file_tile.dart';
 import '../controllers/transfer_send_controller.dart';
 import 'transfer_ui.dart';
 
@@ -48,6 +50,7 @@ class TransferSendView extends GetView<TransferSendController> {
                         transferred: controller.sentBytesFor(item),
                         progress: controller.progressFor(item),
                         status: controller.statusFor(item),
+                        path: item.path,
                       ),
                     )
                     .toList(growable: false),
@@ -188,7 +191,7 @@ class _ChooseFileTypePage extends GetView<TransferSendController> {
                 Card(
                   child: InkWell(
                     onTap: controller.pickFiles,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(kBorderRadius),
                     child: const Padding(
                       padding: EdgeInsets.all(16),
                       child: Row(
@@ -255,7 +258,7 @@ class _FileTypeCard extends StatelessWidget {
       color: option.color.withValues(alpha: 0.06),
       child: InkWell(
         onTap: option.onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(kBorderRadius),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -266,7 +269,7 @@ class _FileTypeCard extends StatelessWidget {
                 height: 48,
                 decoration: BoxDecoration(
                   color: option.color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(kBorderRadius),
                 ),
                 child: Icon(option.icon, color: option.color),
               ),
@@ -502,27 +505,11 @@ class _SelectedFilesCard extends GetView<TransferSendController> {
             ),
             const SizedBox(height: 8),
             for (final file in visibleFiles)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: _fileColor(file.type).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Icon(
-                    _fileIcon(file.type),
-                    color: _fileColor(file.type),
-                  ),
-                ),
-                title: Text(
-                  file.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(formatBytes(file.size)),
+              AppFileTile(
+                name: file.name,
+                path: file.path,
+                subtitle: formatBytes(file.size),
+                previewSize: 42,
               ),
             if (controller.files.length > visibleFiles.length)
               Text(
@@ -554,7 +541,7 @@ class _ReceiverTile extends GetView<TransferSendController> {
         height: 44,
         decoration: BoxDecoration(
           color: const Color(0xFF7C5CFC).withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(kBorderRadius),
         ),
         child: Icon(
           _deviceIcon(device.platform),
@@ -571,44 +558,6 @@ class _ReceiverTile extends GetView<TransferSendController> {
           : const Icon(Icons.chevron_right_rounded),
     );
   }
-}
-
-IconData _fileIcon(String type) {
-  if (const {
-    'jpg',
-    'jpeg',
-    'png',
-    'gif',
-    'webp',
-    'heic',
-    'heif',
-  }.contains(type)) {
-    return Icons.image_rounded;
-  }
-  if (const {'mp4', 'mov', 'mkv', 'avi', 'webm', '3gp'}.contains(type)) {
-    return Icons.video_file_rounded;
-  }
-  if (type == 'apk') return Icons.android_rounded;
-  return Icons.insert_drive_file_rounded;
-}
-
-Color _fileColor(String type) {
-  if (const {
-    'jpg',
-    'jpeg',
-    'png',
-    'gif',
-    'webp',
-    'heic',
-    'heif',
-  }.contains(type)) {
-    return const Color(0xFF00A7A0);
-  }
-  if (const {'mp4', 'mov', 'mkv', 'avi', 'webm', '3gp'}.contains(type)) {
-    return const Color(0xFFFF8A3D);
-  }
-  if (type == 'apk') return const Color(0xFF22B573);
-  return const Color(0xFF5B6FF9);
 }
 
 IconData _deviceIcon(String platform) {

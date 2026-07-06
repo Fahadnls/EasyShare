@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../core/constants/ui_constants.dart';
 import '../../../data/model/transfer_history_item.dart';
+import '../../../widgets/app_file_tile.dart';
 import '../controllers/history_controller.dart';
 
 class HistoryView extends GetView<HistoryController> {
@@ -68,7 +70,7 @@ class _EmptyHistory extends StatelessWidget {
               height: 72,
               decoration: BoxDecoration(
                 color: const Color(0xFF7C5CFC).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(kBorderRadius + 6),
               ),
               child: const Icon(
                 Icons.history_rounded,
@@ -112,47 +114,25 @@ class _HistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sent = item.direction == TransferDirection.sent;
-    final iconColor = sent ? const Color(0xFF3478F6) : const Color(0xFF22B573);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                sent ? Icons.north_east_rounded : Icons.south_west_rounded,
-                color: iconColor,
-              ),
-            ),
-            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
+                  AppFileTile(
+                    name: item.name,
+                    path: item.location,
+                    subtitle:
+                        '${sent ? 'Sent' : 'Received'} • ${item.type.toUpperCase()} • ${_formatBytes(item.size)}',
+                    status: '${_formatDate(item.date)} • ${item.status.name}',
+                    onTap: onOpen,
                   ),
-                  const SizedBox(height: 5),
-                  Text(
-                    '${sent ? 'Sent' : 'Received'} • ${item.type.toUpperCase()} • ${_formatBytes(item.size)}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${_formatDate(item.date)} • ${item.status.name}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     item.location,
                     maxLines: 1,

@@ -1,4 +1,5 @@
 import Cocoa
+import AVFoundation
 import FlutterMacOS
 
 final class DesktopDropStreamHandler: NSObject, FlutterStreamHandler {
@@ -50,6 +51,21 @@ class MainFlutterWindow: NSWindow, NSDraggingDestination {
           return
         }
         result(NSWorkspace.shared.open(URL(fileURLWithPath: path)))
+      case "fileThumbnail":
+        guard
+          let arguments = call.arguments as? [String: Any],
+          let path = arguments["path"] as? String
+        else {
+          result(nil)
+          return
+        }
+        let maxSize = (arguments["maxSize"] as? NSNumber)?.doubleValue ?? 160
+        DispatchQueue.global(qos: .userInitiated).async {
+          let bytes = Self.createThumbnail(path: path, maxSize: maxSize)
+          DispatchQueue.main.async {
+            result(bytes)
+          }
+        }
       case "persistFolderAccess":
         guard
           let arguments = call.arguments as? [String: Any],
@@ -132,5 +148,61 @@ class MainFlutterWindow: NSWindow, NSDraggingDestination {
     let paths = urls.map(\.path)
     dropStreamHandler.send(paths: paths)
     return !paths.isEmpty
+  }
+
+  private static func createThumbnail(path: String, maxSize: Double) -> FlutterStandardTypedData? {
+    let url = URL(fileURLWithPath: path)
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      return nil
+    }
+    let ext = url.pathExtension.lowercased()
+    let imageExts = ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp"]
+    let videoExts = ["mp4", "mov", "mkv", "avi", "webm", "3gp", "m4v"]
+
+    let image: NSImage?
+    if imageExts.contains(ext) {
+      image = NSImage(contentsOf: url)
+    } else if videoExts.contains(ext) {
+      let asset = AVAsset(url: url)
+      let generator = AVAssetImageGenerator(asset: asset)
+      generator.appliesPreferredTrackTransform = true
+      generator.maximumSize = NSSize(width: maxSize, height: maxSize)
+      do {
+        let cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
+        image = NSImage(cgImage: cgImage, size: NSSize(width: maxSize, height: maxSize))
+      } catch {
+        image = nil
+      }
+    } else {
+      image = nil
+    }
+
+    guard
+      let nsImage = image,
+      let data = pngData(from: nsImage, maxSize: maxSize)
+    else {
+      return nil
+    }
+    return FlutterStandardTypedData(bytes: data)
+  }
+
+  private static func pngData(from image: NSImage, maxSize: Double) -> Data? {
+    let targetSize = NSSize(width: maxSize, height: maxSize)
+    let output = NSImage(size: targetSize)
+    output.lockFocus()
+    image.draw(
+      in: NSRect(origin: .zero, size: targetSize),
+      from: .zero,
+      operation: .copy,
+      fraction: 1
+    )
+    output.unlockFocus()
+    guard
+      let tiff = output.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: tiff)
+    else {
+      return nil
+    }
+    return bitmap.representation(using: .png, properties: [:])
   }
 }

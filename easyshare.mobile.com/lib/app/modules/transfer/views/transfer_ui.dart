@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../widgets/app_file_tile.dart';
+
 class TransferProgressItem {
   const TransferProgressItem({
     required this.name,
@@ -10,6 +12,7 @@ class TransferProgressItem {
     required this.transferred,
     required this.progress,
     required this.status,
+    this.path,
   });
 
   final String name;
@@ -17,6 +20,7 @@ class TransferProgressItem {
   final int transferred;
   final double progress;
   final String status;
+  final String? path;
 }
 
 class TransferHeader extends StatelessWidget {
@@ -325,279 +329,210 @@ class TransferProgressPage extends StatefulWidget {
 }
 
 class _TransferProgressPageState extends State<TransferProgressPage> {
-  String _filter = 'All';
-
-  List<TransferProgressItem> get _visibleFiles {
-    return switch (_filter) {
-      'Active' =>
-        widget.files
-            .where((item) => item.status != 'Complete')
-            .toList(growable: false),
-      'Completed' =>
-        widget.files
-            .where((item) => item.status == 'Complete')
-            .toList(growable: false),
-      _ => widget.files,
-    };
-  }
-
   @override
   Widget build(BuildContext context) {
     final peerColor = widget.peerLabel == 'Receiver'
         ? const Color(0xFF22B573)
         : const Color(0xFF5B6FF9);
-    final visibleFiles = _visibleFiles;
     final completedCount = widget.files
         .where((item) => item.status == 'Complete')
         .length;
     return SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
-            children: [
-              TransferHeader(
-                title: widget.isComplete ? 'Transfer complete' : widget.title,
-                subtitle: widget.isComplete
-                    ? 'All files were transferred successfully.'
-                    : widget.status,
-              ),
-              const SizedBox(height: 18),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 27,
-                        backgroundColor: peerColor.withValues(alpha: 0.12),
-                        foregroundColor: peerColor,
-                        child: Icon(
-                          widget.isComplete
-                              ? Icons.check_rounded
-                              : Icons.devices_rounded,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
+      child: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                  children: [
+                    TransferHeader(
+                      title: widget.isComplete
+                          ? 'Transfer complete'
+                          : widget.title,
+                      subtitle: widget.isComplete
+                          ? '${widget.peerName} • All files were transferred successfully.'
+                          : '${widget.peerName} • ${widget.status}',
+                    ),
+                    const SizedBox(height: 18),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              widget.peerLabel,
-                              style: Theme.of(context).textTheme.bodySmall,
+                            _ProgressLine(
+                              label: 'Overall loading',
+                              progress: widget.overallProgress,
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              widget.peerName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleLarge,
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                _Metric(
+                                  label: 'Speed',
+                                  value:
+                                      '${(widget.speedBytes / (1024 * 1024)).toStringAsFixed(2)} MB/s',
+                                ),
+                                _Metric(
+                                  label: 'Time remaining',
+                                  value: formatDuration(widget.estimatedTime),
+                                ),
+                                _Metric(
+                                  label: 'Total transferred',
+                                  value:
+                                      '${formatBytes(widget.transferredBytes)} / ${formatBytes(widget.totalBytes)}',
+                                  wide: true,
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              widget.isComplete
-                                  ? 'Transfer completed'
-                                  : '${widget.fileCount} file(s) • Connected',
-                              style: Theme.of(context).textTheme.bodySmall,
+                            const SizedBox(height: 18),
+                            const Divider(height: 1),
+                            const SizedBox(height: 18),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Files',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleLarge,
+                                  ),
+                                ),
+                                Text(
+                                  '$completedCount/${widget.files.length} complete',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
                             ),
+                            const SizedBox(height: 14),
+                            if (widget.files.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 24,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'No files yet',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                ),
+                              )
+                            else ...[
+                              for (
+                                var index = 0;
+                                index < widget.files.length;
+                                index++
+                              )
+                                _FileProgressItem(
+                                  item: widget.files[index],
+                                  index: index + 1,
+                                  total: widget.files.length,
+                                  isLast: index == widget.files.length - 1,
+                                ),
+                            ],
                           ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: peerColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          '${(widget.overallProgress * 100).toStringAsFixed(0)}%',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.labelLarge?.copyWith(color: peerColor),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+          ),
+          _TransferBottomBar(
+            isComplete: widget.isComplete,
+            onRetry: widget.onRetry,
+            onCancel: widget.onCancel,
+            onOpenFile: widget.onOpenFile,
+            onOpenFolder: widget.onOpenFolder,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransferBottomBar extends StatelessWidget {
+  const _TransferBottomBar({
+    required this.isComplete,
+    required this.onCancel,
+    this.onRetry,
+    this.onOpenFile,
+    this.onOpenFolder,
+  });
+
+  final bool isComplete;
+  final VoidCallback onCancel;
+  final VoidCallback? onRetry;
+  final VoidCallback? onOpenFile;
+  final VoidCallback? onOpenFolder;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.98),
+        border: Border(
+          top: BorderSide(color: colors.outlineVariant.withValues(alpha: 0.7)),
+        ),
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+            child: isComplete
+                ? Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.center,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.fileName.isEmpty
-                                  ? (widget.isComplete
-                                        ? '${widget.fileCount} file(s)'
-                                        : 'Preparing files…')
-                                  : widget.fileName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          Text(
-                            widget.fileCount == 0
-                                ? ''
-                                : '${widget.fileIndex.clamp(0, widget.fileCount)} of ${widget.fileCount}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
+                      // if (onOpenFile != null)
+                      // FilledButton.tonalIcon(
+                      //   onPressed: onOpenFile,
+                      //   icon: const Icon(Icons.open_in_new_rounded),
+                      //   label: const Text('Open file'),
+                      // ),
+                      OutlinedButton(
+                        onPressed: Get.back,
+                        child: const Text('Go back'),
                       ),
-                      const SizedBox(height: 18),
-                      _ProgressLine(
-                        label: 'Overall',
-                        progress: widget.overallProgress,
-                      ),
-                      const SizedBox(height: 14),
-                      _ProgressLine(
-                        label: 'Current file',
-                        progress: widget.fileProgress,
-                      ),
-                      const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 24,
-                        runSpacing: 14,
-                        children: [
-                          _Metric(
-                            label: 'Progress',
-                            value:
-                                '${(widget.overallProgress * 100).toStringAsFixed(0)}%',
-                          ),
-                          _Metric(
-                            label: 'Speed',
-                            value:
-                                '${(widget.speedBytes / (1024 * 1024)).toStringAsFixed(2)} MB/s',
-                          ),
-                          _Metric(
-                            label: 'Transferred',
-                            value:
-                                '${formatBytes(widget.transferredBytes)} / ${formatBytes(widget.totalBytes)}',
-                          ),
-                          _Metric(
-                            label: 'Time remaining',
-                            value: formatDuration(widget.estimatedTime),
-                          ),
-                        ],
-                      ),
+                      if (onOpenFolder != null)
+                        FilledButton.tonalIcon(
+                          onPressed: onOpenFolder,
+                          icon: const Icon(Icons.folder_open_rounded),
+                          label: const Text('Open folder'),
+                        ),
                     ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              if (widget.isComplete)
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    if (widget.onOpenFile != null)
-                      FilledButton.tonalIcon(
-                        onPressed: widget.onOpenFile,
-                        icon: const Icon(Icons.open_in_new_rounded),
-                        label: const Text('Open file'),
-                      ),
-                    if (widget.onOpenFolder != null)
-                      FilledButton.tonalIcon(
-                        onPressed: widget.onOpenFolder,
-                        icon: const Icon(Icons.folder_open_rounded),
-                        label: const Text('Open folder'),
-                      ),
-                    FilledButton(
-                      onPressed: Get.back,
-                      child: const Text('Done'),
-                    ),
-                  ],
-                )
-              else
-                Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: widget.onRetry != null ? 380 : 190,
-                    ),
-                    child: Row(
-                      children: [
-                        if (widget.onRetry != null) ...[
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: widget.onRetry,
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Retry'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                        ],
+                  )
+                : Row(
+                    children: [
+                      if (onRetry != null) ...[
                         Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: widget.onCancel,
-                            icon: const Icon(Icons.close_rounded),
-                            label: const Text('Cancel'),
+                          child: FilledButton.icon(
+                            onPressed: onRetry,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Retry'),
                           ),
                         ),
+                        const SizedBox(width: 10),
                       ],
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'All files',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                  Text(
-                    '$completedCount/${widget.files.length} complete',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final filter in ['All', 'Active', 'Completed']) ...[
-                      ChoiceChip(
-                        label: Text(filter),
-                        selected: _filter == filter,
-                        onSelected: (_) => setState(() => _filter = filter),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onCancel,
+                          icon: const Icon(Icons.close_rounded),
+                          label: const Text('Cancel'),
+                        ),
                       ),
-                      const SizedBox(width: 8),
                     ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (visibleFiles.isEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Center(
-                      child: Text(
-                        'No $_filter files',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ),
                   ),
-                ),
-              for (var index = 0; index < visibleFiles.length; index++)
-                _FileProgressItem(
-                  item: visibleFiles[index],
-                  index: widget.files.indexOf(visibleFiles[index]) + 1,
-                  total: widget.files.length,
-                ),
-            ],
           ),
         ),
       ),
@@ -610,94 +545,39 @@ class _FileProgressItem extends StatelessWidget {
     required this.item,
     required this.index,
     required this.total,
+    this.isLast = false,
   });
 
   final TransferProgressItem item;
   final int index;
   final int total;
+  final bool isLast;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final isError = item.status == 'Failed' || item.status == 'Cancelled';
-    final isComplete = item.status == 'Complete';
-    final isActive = const {
-      'Sending',
-      'Receiving',
-      'Retrying',
-    }.contains(item.status);
-    final statusColor = isError
-        ? colors.error
-        : isComplete
-        ? const Color(0xFF22B573)
-        : isActive
-        ? const Color(0xFF3478F6)
-        : const Color(0xFFFF9A00);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      color: statusColor.withValues(alpha: isActive ? 0.08 : 0.025),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: statusColor.withValues(alpha: 0.14),
-                  foregroundColor: statusColor,
-                  child: isComplete
-                      ? const Icon(Icons.check_rounded, size: 20)
-                      : isError
-                      ? const Icon(Icons.error_outline_rounded, size: 20)
-                      : Text('$index'),
+    return Container(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 14),
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : Border(
+                bottom: BorderSide(
+                  color: colors.outlineVariant.withValues(alpha: 0.6),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'File $index of $total • ${formatBytes(item.transferred)} / ${formatBytes(item.size)}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '${(item.progress * 100).toStringAsFixed(0)}%',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    Text(
-                      item.status,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: statusColor),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            LinearProgressIndicator(
-              value: item.progress.clamp(0, 1),
-              minHeight: 7,
-              borderRadius: BorderRadius.circular(999),
-              color: statusColor,
-            ),
-          ],
+              ),
+      ),
+      child: AppFileTile(
+        name: item.name,
+        path: item.path,
+        subtitle:
+            'File $index of $total • ${formatBytes(item.transferred)} / ${formatBytes(item.size)}',
+        status: item.status,
+        progress: item.progress,
+        trailing: Text(
+          '${(item.progress * 100).toStringAsFixed(0)}%',
+          style: Theme.of(context).textTheme.labelLarge,
         ),
       ),
     );
@@ -732,15 +612,16 @@ class _ProgressLine extends StatelessWidget {
 }
 
 class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
+  const _Metric({required this.label, required this.value, this.wide = false});
 
   final String label;
   final String value;
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 132,
+      width: wide ? 220 : 132,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -753,6 +634,28 @@ class _Metric extends StatelessWidget {
             style: Theme.of(context).textTheme.labelLarge,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PercentBadge extends StatelessWidget {
+  const _PercentBadge({required this.value, required this.color});
+
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        value,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
       ),
     );
   }

@@ -317,15 +317,16 @@ class TransferReceiveController extends GetxController {
     Error.throwWithStackTrace(lastError!, lastStack!);
   }
 
-  Future<void> startFromManualCode() async {
+  Future<bool> startFromManualCode() async {
     final code = manualCodeController.text.trim();
     if (code.isEmpty) {
       statusText.value = supportsScanner
           ? 'Scan QR or paste a transfer code'
           : 'Paste a transfer code from the sender';
-      return;
+      return false;
     }
     await startFromQr(code);
+    return true;
   }
 
   Future<void> openQrScanner() async {

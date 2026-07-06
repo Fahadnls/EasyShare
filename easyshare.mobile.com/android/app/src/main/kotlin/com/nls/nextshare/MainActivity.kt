@@ -4,12 +4,15 @@ import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.media.ThumbnailUtils
+import android.util.Size
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -116,6 +119,20 @@ class MainActivity : FlutterActivity() {
                     "openPath" -> {
                         val path = call.argument<String>("path")
                         result.success(path != null && openPath(path))
+                    }
+                    "fileThumbnail" -> {
+                        val path = call.argument<String>("path")
+                        val maxSize = call.argument<Int>("maxSize") ?: 160
+                        if (path.isNullOrBlank()) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            val bytes = runCatching {
+                                createThumbnail(path, maxSize)
+                            }.getOrNull()
+                            runOnUiThread { result.success(bytes) }
+                        }.start()
                     }
                     else -> result.notImplemented()
                 }
@@ -461,5 +478,53 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun createThumbnail(path: String, maxSize: Int): ByteArray? {
+        val file = File(path)
+        if (!file.exists()) return null
+        val extension = file.extension.lowercase()
+        val bitmap = when {
+            imageExtensions.contains(extension) -> decodeImageThumbnail(file, maxSize)
+            videoExtensions.contains(extension) -> decodeVideoThumbnail(file, maxSize)
+            else -> null
+        } ?: return null
+        return ByteArrayOutputStream().use { output ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 92, output)
+            output.toByteArray()
+        }
+    }
+
+    private fun decodeImageThumbnail(file: File, maxSize: Int): Bitmap? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ThumbnailUtils.createImageThumbnail(file, Size(maxSize, maxSize), null)
+        } else {
+            @Suppress("DEPRECATION")
+            MediaStore.Images.Media.getBitmap(contentResolver, Uri.fromFile(file))?.let { bitmap ->
+                ThumbnailUtils.extractThumbnail(bitmap, maxSize, maxSize)
+            }
+        }
+    }
+
+    private fun decodeVideoThumbnail(file: File, maxSize: Int): Bitmap? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ThumbnailUtils.createVideoThumbnail(file, Size(maxSize, maxSize), null)
+        } else {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(file.absolutePath)
+                val frame = retriever.getFrameAtTime(0) ?: return null
+                ThumbnailUtils.extractThumbnail(frame, maxSize, maxSize)
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+    }
+
+    companion object {
+        private val imageExtensions =
+            setOf("jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp")
+        private val videoExtensions =
+            setOf("mp4", "mov", "mkv", "avi", "webm", "3gp", "m4v")
     }
 }

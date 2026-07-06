@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../core/constants/ui_constants.dart';
 import '../../../data/model/transfer_history_item.dart';
 import '../../../routes/app_pages.dart';
+import '../../../widgets/app_file_tile.dart';
 import '../controllers/home_controller.dart';
 
 class HomeView extends GetView<HomeController> {
@@ -17,6 +19,8 @@ class HomeView extends GetView<HomeController> {
             constraints: const BoxConstraints(maxWidth: 1040),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+              physics: NeverScrollableScrollPhysics(),
+              shrinkWrap: true,
               children: [
                 _TopBar(
                   onHistory: () => Get.toNamed(Routes.TRANSFER_HISTORY),
@@ -38,9 +42,15 @@ class HomeView extends GetView<HomeController> {
                       return Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(flex: 4, child: device),
+                          Expanded(
+                            flex: 4,
+                            child: SizedBox(height: 164, child: device),
+                          ),
                           const SizedBox(width: 14),
-                          const Expanded(flex: 6, child: quickSend),
+                          const Expanded(
+                            flex: 6,
+                            child: SizedBox(height: 164, child: quickSend),
+                          ),
                         ],
                       );
                     }
@@ -71,56 +81,60 @@ class _DeviceCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: const Color(0xFF7C5CFC).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.devices_rounded,
-                color: Color(0xFF7C5CFC),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'This device',
-                    style: Theme.of(context).textTheme.bodySmall,
+            Text('This device', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7C5CFC).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(kBorderRadius),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    deviceName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
+                  child: const Icon(
+                    Icons.devices_rounded,
+                    color: Color(0xFF7C5CFC),
                   ),
-                  const SizedBox(height: 4),
-                  Row(
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          color: colors.primary,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
                       Text(
-                        'Ready to share nearby',
-                        style: Theme.of(context).textTheme.bodySmall,
+                        deviceName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: colors.primary,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Ready to share nearby',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ),
@@ -199,12 +213,12 @@ class _QuickSendButton extends StatelessWidget {
         Routes.TRANSFER_SEND,
         arguments: {'initialAction': action},
       ),
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(kBorderRadius),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(kBorderRadius),
         ),
         child: Column(
           children: [
@@ -213,7 +227,7 @@ class _QuickSendButton extends StatelessWidget {
               height: 38,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(kBorderRadius),
               ),
               child: Icon(icon, color: color, size: 21),
             ),
@@ -270,7 +284,7 @@ class _RecentTransfersCard extends GetView<HomeController> {
                           color: const Color(
                             0xFF7C5CFC,
                           ).withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(13),
+                          borderRadius: BorderRadius.circular(kBorderRadius),
                         ),
                         child: const Icon(
                           Icons.history_rounded,
@@ -305,31 +319,14 @@ class _RecentTransferTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sent = item.direction == TransferDirection.sent;
-    final color = sent ? const Color(0xFF3478F6) : const Color(0xFF22B573);
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Icon(
-          sent ? Icons.north_east_rounded : Icons.south_west_rounded,
-          color: color,
-        ),
-      ),
-      title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(
-        '${sent ? 'Sent' : 'Received'} • ${_formatBytes(item.size)}',
-      ),
-      trailing: Text(
-        item.status == TransferHistoryStatus.completed
-            ? 'Done'
-            : item.status.name,
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
+    return AppFileTile(
+      name: item.name,
+      path: item.location,
+      subtitle: '${sent ? 'Sent' : 'Received'} • ${_formatBytes(item.size)}',
+      status: item.status == TransferHistoryStatus.completed
+          ? 'Done'
+          : item.status.name,
+      previewSize: 44,
       onTap: () => Get.toNamed(Routes.TRANSFER_HISTORY),
     );
   }
@@ -349,7 +346,19 @@ class _TopBar extends StatelessWidget {
         Expanded(
           child: Row(
             children: [
-              Image.asset('assets/logo_launcher.png', width: 32, height: 32),
+              Container(
+                width: 42,
+                height: 42,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(kBorderRadius),
+                ),
+                child: Image.asset(
+                  'assets/logo_foreground.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
               const SizedBox(width: 10),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -364,15 +373,14 @@ class _TopBar extends StatelessWidget {
         ),
         _TopBadge(
           icon: Icons.history_rounded,
-          color: const Color(0xFF7C5CFC),
           tooltip: 'Transfer history',
           onTap: onHistory,
         ),
         const SizedBox(width: 10),
         _TopBadge(
           icon: Icons.settings_rounded,
-          color: const Color(0xFFFF8A3D),
           tooltip: 'Settings',
+
           onTap: onSettings,
         ),
       ],
@@ -383,32 +391,31 @@ class _TopBar extends StatelessWidget {
 class _TopBadge extends StatelessWidget {
   const _TopBadge({
     required this.icon,
-    required this.color,
     required this.tooltip,
     required this.onTap,
   });
 
   final IconData icon;
-  final Color color;
   final String tooltip;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Tooltip(
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(kBorderRadius),
         child: Container(
           width: 38,
           height: 38,
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE3E9F3)),
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(kBorderRadius),
+            border: Border.all(color: scheme.outlineVariant),
           ),
-          child: Icon(icon, size: 21, color: color),
+          child: Icon(icon, size: 21, color: scheme.onSurface),
         ),
       ),
     );
@@ -476,7 +483,7 @@ class _ActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(kBorderRadius + 8),
       child: Column(
         children: [
           Container(
